@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.2.1 - Windows uninstaller (normal PowerShell window)
+# PHANTOM NETWORK v1.2.2 - Windows uninstaller (normal PowerShell window)
 #
 # Removes ONLY Phantom Network's own program files, shortcuts, autostart
 # entry and (with -RemoveData) its data directory. Transferred files inside

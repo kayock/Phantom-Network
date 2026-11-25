@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Build + verify the release ZIP: Phantom-Network-v1.2.1.zip
+# Build + verify the release ZIP: Phantom-Network-v1.2.2.zip
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.2.1
+VERSION=1.2.2
 OUT=dist; NAME="Phantom-Network-v$VERSION"
 mkdir -p "$OUT"
 
 # 1. source audit: every version indicator must report the release version
-grep -q '__version__ = "1.2.1"' companion/__init__.py
-grep -q "NETWORK v1.2.1" web/index.html
+grep -q '__version__ = "1.2.2"' companion/__init__.py
+grep -q "NETWORK v1.2.2" web/index.html
 echo "[audit] version strings OK"
 
 # 2. stage the release tree (no git internals, no dev logs, no archives)

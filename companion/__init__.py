@@ -8,7 +8,7 @@ Pure Python 3.9+ standard library is required; ``psutil`` is an optional
 dependency that improves telemetry fidelity when installed.
 """
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __product__ = "Phantom Network"
 
 PROTOCOL_VERSION = 1

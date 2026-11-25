@@ -156,7 +156,7 @@ export async function render(container) {
     // tabs
     tabs.innerHTML = '';
     const buckets = {
-      active: jobs.filter(j => ['running', 'queued', 'verifying'].includes(j.status)),
+      active: jobs.filter(j => ['running', 'queued', 'verifying', 'hashing'].includes(j.status)),
       paused: jobs.filter(j => j.status === 'paused'),
       interrupted: jobs.filter(j => j.status === 'interrupted'),
       completed: jobs.filter(j => ['completed', 'completed_partial'].includes(j.status)),
@@ -180,11 +180,27 @@ export async function render(container) {
       el('th', {}, 'Controls'))));
     const tbody = el('tbody', {});
     for (const j of list) {
-      const pct = j.size ? Math.min(100, (j.transferred / j.size) * 100) : 0;
+      const prep = j.prepare;
+      const hashing = j.status === 'hashing' || (prep && prep.phase === 'source_checksum' && ['queued', 'running'].includes(prep.status));
+      const prepSize = prep?.size || j.size || 0;
+      const prepDone = prep?.processed || 0;
+      const pct = hashing
+        ? (prepSize ? Math.min(100, (prepDone / prepSize) * 100) : 0)
+        : (j.size ? Math.min(100, (j.transferred / j.size) * 100) : 0);
       const verifyBadge = j.verify?.status === 'ok' ? el('span', { class: 'badge on' }, 'SHA-256 OK')
         : j.verify?.status === 'failed' ? el('span', { class: 'badge err' }, 'FAILED')
         : j.verify?.status === 'pending' && j.status === 'verifying' ? el('span', { class: 'badge vio' }, 'verifying…')
+        : hashing ? el('span', { class: 'badge cyan' }, 'checksum…')
         : el('span', { class: 'badge off' }, '—');
+      const progressNote = hashing
+        ? (prep?.cached
+            ? 'Source checksum ready (cached)'
+            : prepSize
+              ? `Checksum ${fmtSize(prepDone)} / ${fmtSize(prepSize)} (${pct.toFixed(0)}%) · ${fmtBps(prep?.speed_bps || 0)} · elapsed ${Math.round(prep?.elapsed_s || 0)}s`
+              : 'Calculating source checksum…')
+        : j.size
+          ? `${fmtSize(j.transferred)} / ${fmtSize(j.size)} · ${fmtSize(Math.max(0, j.size - j.transferred))} left (${pct.toFixed(0)}%)`
+          : `${fmtSize(j.transferred)} transferred (size unknown)`;
       tbody.appendChild(el('tr', {},
         el('td', {},
           el('div', {}, baseOf(j.dest_path)),
@@ -195,11 +211,9 @@ export async function render(container) {
           el('div', { class: 'faint small mono' }, j.kind === 'pull_dir' ? `directory · ${j.files_done}/${j.files_total} files` : 'file')),
         el('td', { style: { minWidth: '160px' } },
           el('div', { class: 'progress thin' }, el('div', { style: { width: pct + '%' } })),
-          el('div', { class: 'small dim', style: { marginTop: '4px' } },
-            j.size ? `${fmtSize(j.transferred)} / ${fmtSize(j.size)} · ${fmtSize(Math.max(0, j.size - j.transferred))} left (${pct.toFixed(0)}%)`
-                   : `${fmtSize(j.transferred)} transferred (size unknown)`)),
-        el('td', {}, fmtBps(j.speed_bps)),
-        el('td', {}, fmtEta(j.eta_s)),
+          el('div', { class: 'small dim', style: { marginTop: '4px' } }, progressNote)),
+        el('td', {}, hashing ? fmtBps(prep?.speed_bps || 0) : fmtBps(j.speed_bps)),
+        el('td', {}, hashing ? fmtEta(prep?.eta_s) : fmtEta(j.eta_s)),
         el('td', {}, verifyBadge),
         el('td', {},
           el('span', { class: 'badge ' + statusClass(j.status) }, statusLabel(j)),
@@ -213,14 +227,17 @@ export async function render(container) {
 
   function baseOf(p) { return p.split(/[\\/]/).pop() || p; }
   function statusClass(s) {
-    return { running: 'vio', queued: '', verifying: 'cyan', paused: 'warn',
-             interrupted: 'warn', completed: 'on', completed_partial: 'warn',
-             failed: 'err', cancelled: 'off' }[s] || '';
+    return { running: 'vio', queued: '', verifying: 'cyan', hashing: 'cyan',
+             paused: 'warn', interrupted: 'warn', completed: 'on',
+             completed_partial: 'warn', failed: 'err', cancelled: 'off' }[s] || '';
   }
 
   function statusLabel(j) {
     if (j.status === 'completed_partial') return 'COPY OK · SOURCE RETAINED';
-    if (j.status === 'verifying') return 'VERIFYING';
+    if (j.status === 'verifying') return 'VERIFYING DESTINATION';
+    if (j.status === 'hashing') return 'CALCULATING SOURCE CHECKSUM';
+    if (j.status === 'running') return 'TRANSFERRING';
+    if (j.status === 'queued') return 'PREPARING';
     return (j.status || '').toUpperCase();
   }
 
@@ -236,7 +253,7 @@ export async function render(container) {
       },
     }, label);
     const row = el('div', { class: 'row', style: { gap: '4px' } });
-    if (['running', 'queued', 'verifying'].includes(j.status)) row.appendChild(btn('⏸', 'pause'));
+    if (['running', 'queued', 'verifying', 'hashing'].includes(j.status)) row.appendChild(btn('⏸', 'pause'));
     if (['paused', 'interrupted', 'failed'].includes(j.status)) row.appendChild(btn('▶', 'resume', 'cyan'));
     if (!['completed'].includes(j.status)) row.appendChild(btn('✕', 'cancel', 'danger'));
     if (['failed', 'interrupted', 'cancelled', 'completed'].includes(j.status)) row.appendChild(btn('↻', 'retry'));

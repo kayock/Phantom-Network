@@ -1,5 +1,5 @@
 @echo off
-rem PHANTOM NETWORK v1.2.1 launcher (Windows)
+rem PHANTOM NETWORK v1.2.2 launcher (Windows)
 rem - installed mode: data in %APPDATA%\PhantomNetwork
 rem - portable mode : data in <app>\data when portable.marker exists
 rem Paths with spaces or Unicode usernames are safe: every use of the

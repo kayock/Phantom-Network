@@ -105,6 +105,14 @@ during/after verification refuse the deletion; symbolic links are never
 followed into deletion. The cost is one extra full read of the source per
 move — deliberate: source preservation outranks transfer speed.
 
+**v1.2.2 — source checksum preparation is asynchronous.** Before streaming,
+the destination companion starts or joins `POST /api/fs/hash/prepare` on the
+source and polls `GET /api/fs/hash/prepare/{id}` with short HTTP timeouts.
+Identical unchanged sources share one worker. Job status `hashing` exposes
+measured progress to Transfer Center. A failed prepare becomes `hash_failed`
+(never a silent `size=0` interrupt). Destructive deletion still ignores the
+prepare/cache digest and re-hashes.
+
 ## 5b. Resume & crash recovery
 
 * `.part` byte length = resume offset. Pause/resume/cancel are flags the

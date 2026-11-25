@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PHANTOM NETWORK v1.2.1 — Ubuntu installer
+# PHANTOM NETWORK v1.2.2 — Ubuntu installer
 #
 # Safety properties (audited):
 #   * installs ONLY into /opt/phantom-network and the invoking user's
@@ -83,7 +83,7 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-echo "Installing Phantom Network v1.2.1 from $SRC → $DEST"
+echo "Installing Phantom Network v1.2.2 from $SRC → $DEST"
 mkdir -p "$DEST"
 rm -rf "$DEST/companion" "$DEST/web" "$DEST/packaging" "$DEST/scripts" "$DEST/sounds"
 cp -r "$SRC/companion" "$SRC/web" "$DEST/"

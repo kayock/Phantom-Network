@@ -108,6 +108,14 @@ matters.
     other browsers still work directly against their own companions.
 
 
+## v1.2.2 additions
+
+* **Source checksum preparation can take minutes on huge files.** Transfer
+  Center shows progress when the backend measures it. Destination
+  verification still requires a full read of the received bytes.
+* **v1.2.1 cold-hash workaround is obsolete.** Do not manually call
+  `/api/fs/hash` before large pulls; v1.2.2 prepare/poll handles long hashes.
+
 ## v1.2.0 additions
 
 * **Local-administrative boundary is policy, not a security wall.** Remote

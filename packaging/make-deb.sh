@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# PHANTOM NETWORK v1.2.1 — Debian/Ubuntu .deb builder
+# PHANTOM NETWORK v1.2.2 — Debian/Ubuntu .deb builder
 # Run on a Debian-based host:  bash packaging/make-deb.sh   →  dist/*.deb
 # The package installs to /opt/phantom-network, ships the desktop launcher
 # for the CURRENT user at post-install (see maintainer script), and never
 # touches firewalls or user directories beyond its own.
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.2.1
+VERSION=1.2.2
 OUT=dist; PKG="phantom-network_${VERSION}_all"
 STAGE="$OUT/$PKG"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/opt/phantom-network" \

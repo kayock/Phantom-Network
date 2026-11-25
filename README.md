@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.2.1
+# PHANTOM NETWORK v1.2.2
 
 **Cross-Platform LAN Command Center, File Commander & Signal Laboratory**
 
@@ -34,6 +34,12 @@ and no AI model required**.
   phone browser. Twelve views: Command Center, Network Radar, File
   Commander, Transfer Center, GhostChat, Audio Command, Intercom, Signal
   Lab, Fleet Monitor, Events, Settings, Diagnostics.
+- **Large-file transfers** — physically verified on a private LAN through
+  **50 GB** with independent SHA-256 checks, pause/resume, and roughly
+  **7–9 MiB/s** throughput at about **43–45 MB** companion RSS. External
+  volumes (for example a 1 TB ext4 drive) can be authorized as dedicated
+  transfer directories. v1.2.2 fixes cold source-checksum timeouts so huge
+  files no longer need a manual hash-cache warm-up before the first pull.
 
 ## Quick start (three-computer LAN)
 

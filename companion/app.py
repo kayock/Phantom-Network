@@ -541,6 +541,19 @@ class App:
         return json_response({"ok": True,
                               **self.transfers.file_hash(req.q("path"))})
 
+    def fs_hash_prepare(self, req) -> Response:
+        body = req.json() or {}
+        path = body.get("path") or req.q("path")
+        return json_response(self.transfers.hash_prepare.prepare(path or ""))
+
+    def fs_hash_prepare_status(self, req) -> Response:
+        return json_response(
+            self.transfers.hash_prepare.status(req.params[""]))
+
+    def fs_hash_prepare_cancel(self, req) -> Response:
+        return json_response(
+            self.transfers.hash_prepare.cancel(req.params[""]))
+
     def fs_walk(self, req) -> Response:
         return json_response({"ok": True,
                               **self.transfers.walk_remote_manifest(

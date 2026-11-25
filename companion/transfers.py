@@ -33,6 +33,7 @@ from typing import Callable, Dict, List, Optional
 
 from .fsops import windows_name_problem
 from .errors import FsError
+from .hashprep import HashPrepareService
 from .peers import PeerClient, PeerHttpError, PeerUnreachable
 from .util import atomic_write_json, now_ms
 
@@ -40,6 +41,11 @@ CHUNK = 1024 * 1024
 HISTORY_CAP = 300
 PROGRESS_EVERY_S = 1.0
 AUTO_RETRY = 3
+# Short peer timeouts for prepare/poll. Long hashes complete via polling,
+# not by holding one HTTP request open for minutes.
+HASH_PREPARE_HTTP_TIMEOUT = 15.0
+HASH_POLL_HTTP_TIMEOUT = 10.0
+HASH_POLL_IDLE_S = 0.5
 
 
 class RateLimiter:
@@ -103,7 +109,9 @@ class TransferEngine:
         self.limiter.set_bps(config.get("bandwidth_limit_bps") or 0)
         config.on_change(self._on_config_change)
         self._client = PeerClient(self._token_provider)
-        self._hash_cache: Dict[str, tuple] = {}   # path -> (mtime, size, sha)
+        self._hash_cache: Dict[str, tuple] = {}   # path -> (cache_key, sha)
+        self.hash_prepare = HashPrepareService(
+            sandbox, hash_cache=self._hash_cache, log=log)
         self._load_state()
         self._pool: Optional[ThreadPoolExecutor] = None
         threading.Thread(target=self._scheduler_loop, name="pn-xfer-sched",
@@ -131,7 +139,8 @@ class TransferEngine:
             pass
         for job in state.get("active", []):
             # Anything running when we died is now "interrupted"; resumable.
-            if job.get("status") in ("running", "verifying", "queued", "paused"):
+            if job.get("status") in ("running", "verifying", "queued",
+                                     "paused", "hashing"):
                 job["status"] = "interrupted"
             self._jobs[job["id"]] = job
             self._cancel_events[job["id"]] = threading.Event()
@@ -190,6 +199,7 @@ class TransferEngine:
             "current_file": None,
             "created": now_ms(), "started": None, "finished": None,
             "retries": 0,
+            "prepare": None,   # checksum preparation progress (hashing)
         }
         with self._lock:
             self._jobs[job_id] = job
@@ -252,7 +262,7 @@ class TransferEngine:
         if job is None:
             return None
         if action == "pause":
-            if job["status"] in ("running", "queued", "verifying"):
+            if job["status"] in ("running", "queued", "verifying", "hashing"):
                 self._pause_flags[job_id].set()
                 # drain the worker FIRST so a later resume can never race a
                 # still-running writer on the same .part file
@@ -260,7 +270,7 @@ class TransferEngine:
                 if done is not None:
                     done.wait(timeout=10)
                 if self._jobs.get(job_id) is job and \
-                        job["status"] in ("running", "verifying"):
+                        job["status"] in ("running", "verifying", "hashing"):
                     self._set_status(job, "paused")
         elif action == "resume":
             if job["status"] in ("paused", "interrupted", "failed"):
@@ -274,13 +284,29 @@ class TransferEngine:
         elif action == "cancel":
             self._cancel_events[job_id].set()
             self._pause_flags[job_id].clear()
-            if job["status"] in ("queued", "paused", "interrupted"):
+            prep = job.get("prepare") or {}
+            if prep.get("hash_id") and job.get("src_base") == "self":
+                try:
+                    self.hash_prepare.cancel(prep["hash_id"])
+                except FsError:
+                    pass
+            elif prep.get("hash_id") and job.get("src_base") not in (None, "self"):
+                try:
+                    self._client.request(
+                        "POST",
+                        f"{job['src_base']}/api/fs/hash/prepare/"
+                        f"{prep['hash_id']}/cancel",
+                        body={}, timeout=HASH_PREPARE_HTTP_TIMEOUT)
+                except Exception:
+                    pass
+            if job["status"] in ("queued", "paused", "interrupted", "hashing"):
                 self._set_status(job, "cancelled", error="Cancelled by user")
             # running workers observe the event and finish the cancel
         elif action == "retry":
             if job["status"] in ("failed", "interrupted", "cancelled"):
                 job["error"] = None
                 job["retries"] = 0
+                job["prepare"] = None
                 if job.get("source_changed"):
                     # explicit user choice: discard the stale partial data
                     part = job["dest_path"] + ".part"
@@ -324,7 +350,8 @@ class TransferEngine:
                     queued = [j for j in self._jobs.values()
                               if j["status"] == "queued"]
                     running = sum(1 for j in self._jobs.values()
-                                  if j["status"] in ("running", "verifying"))
+                                  if j["status"] in ("running", "verifying",
+                                                     "hashing"))
                     queued.sort(key=lambda j: j["created"])
                 for job in queued:
                     if running + launched >= max_parallel:
@@ -341,6 +368,10 @@ class TransferEngine:
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        try:
+            self.hash_prepare.stop_all()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # status plumbing
@@ -371,6 +402,7 @@ class TransferEngine:
                 "speed_bps": job["speed_bps"], "eta_s": job["eta_s"],
                 "files_done": job["files_done"], "files_total": job["files_total"],
                 "verify": job["verify"], "error": job["error"],
+                "prepare": job.get("prepare"),
             })
 
     def _emit_event(self, job: dict, status: str) -> None:
@@ -634,16 +666,24 @@ class TransferEngine:
 
         if job["src_base"] == "self":
             real_src = self.sandbox.authorize(src_path, "r")
-            size = os.path.getsize(real_src)
-            src_sha = self.file_hash(src_path)["sha256"]
-            src_mtime_ns = os.stat(real_src).st_mtime_ns
-        else:
-            meta = self._source_meta(src_base, src_path)
+            meta = self._await_source_hash(job, local_path=src_path)
             size, src_sha = meta["size"], meta.get("sha256")
             src_mtime_ns = meta.get("mtime_ns")
+        else:
+            meta = self._await_source_hash(job, src_base=src_base,
+                                          src_path=src_path)
+            size, src_sha = meta["size"], meta.get("sha256")
+            src_mtime_ns = meta.get("mtime_ns")
+            real_src = None
+        if not size and not src_sha:
+            raise FsError(500, "hash_failed",
+                          meta.get("error") or "Source checksum failed")
         job["size"] = size
         if job["verify"]["expected"] is None:
             job["verify"]["expected"] = src_sha
+        # Leave hashing for transfer proper.
+        if job.get("status") == "hashing":
+            self._set_status(job, "running")
         # source identity binding: resume must never continue against a
         # source file that changed since the transfer started
         identity = {"size": size, "mtime_ns": src_mtime_ns}
@@ -768,9 +808,117 @@ class TransferEngine:
 
     # ------------------------------------------------------------------
     def _source_meta(self, src_base: str, src_path: str) -> dict:
-        return self._client.request(
-            "GET", f"{src_base}/api/fs/hash?path={_urlquote(src_path)}",
-            timeout=30)
+        """Legacy one-shot hash (kept for callers). Prefer `_await_source_hash`."""
+        return self._await_source_hash(
+            {"id": "meta", "prepare": None,
+             "status": "running"},
+            src_base=src_base, src_path=src_path, publish=False)
+
+    def _update_prepare(self, job: dict, snap: dict, publish: bool = True) -> None:
+        prep = {
+            "phase": "source_checksum",
+            "hash_id": snap.get("hash_id"),
+            "status": snap.get("status"),
+            "path": snap.get("path") or job.get("src_path"),
+            "size": snap.get("size") or 0,
+            "processed": snap.get("processed") or 0,
+            "speed_bps": snap.get("speed_bps") or 0.0,
+            "eta_s": snap.get("eta_s"),
+            "elapsed_s": snap.get("elapsed_s") or 0.0,
+            "cached": bool(snap.get("cached")),
+            "error": snap.get("error"),
+        }
+        job["prepare"] = prep
+        if snap.get("size"):
+            job["size"] = snap["size"]
+        if not publish or not job.get("id") or job["id"] == "meta":
+            return
+        # Cached digests skip the visible hashing phase.
+        if snap.get("cached") and snap.get("status") == "completed":
+            self._persist()
+            self._publish(job, job.get("status") or "running")
+            return
+        if job.get("status") not in ("hashing", "cancelled", "failed"):
+            self._set_status(job, "hashing")
+        else:
+            self._persist()
+            self._publish(job, job.get("status") or "hashing")
+
+    def _await_source_hash(self, job: dict, *, local_path: str = None,
+                           src_base: str = None, src_path: str = None,
+                           publish: bool = True) -> dict:
+        """Resolve source size/mtime/sha256 without a single long HTTP hold.
+
+        Local paths use HashPrepareService directly. Remote paths start or
+        join a prepare job on the source companion and poll with short
+        timeouts so ordinary PeerClient defaults stay unchanged.
+        """
+        cancel = self._cancel_events.get(job.get("id")) or threading.Event()
+
+        def _raise_if_cancelled():
+            if cancel.is_set():
+                raise InterruptedError()
+
+        if local_path is not None:
+            snap = self.hash_prepare.prepare(local_path)
+            self._update_prepare(job, snap, publish=publish)
+            hash_id = snap.get("hash_id")
+            while snap.get("status") in ("queued", "running"):
+                _raise_if_cancelled()
+                pause = self._pause_flags.get(job.get("id"))
+                if pause is not None:
+                    self._wait_while_paused(job, pause)
+                time.sleep(HASH_POLL_IDLE_S)
+                if hash_id:
+                    snap = self.hash_prepare.status(hash_id)
+                else:
+                    snap = self.hash_prepare.prepare(local_path)
+                    hash_id = snap.get("hash_id")
+                self._update_prepare(job, snap, publish=publish)
+            if snap.get("status") != "completed" or not snap.get("sha256"):
+                err = snap.get("error") or snap.get("status") or "hash failed"
+                if snap.get("status") == "cancelled":
+                    raise InterruptedError()
+                if "changed" in (err or "").lower():
+                    raise FsError(409, "source_changed", err)
+                raise FsError(500, "hash_failed",
+                              f"Source checksum failed: {err}")
+            return {"size": snap["size"], "sha256": snap["sha256"],
+                    "mtime_ns": snap.get("mtime_ns"), "path": snap.get("path")}
+
+        # Remote source companion
+        assert src_base and src_path
+        start = self._client.request(
+            "POST", f"{src_base}/api/fs/hash/prepare",
+            body={"path": src_path}, timeout=HASH_PREPARE_HTTP_TIMEOUT)
+        self._update_prepare(job, start, publish=publish)
+        hash_id = start.get("hash_id")
+        snap = start
+        while snap.get("status") in ("queued", "running"):
+            _raise_if_cancelled()
+            pause = self._pause_flags.get(job.get("id"))
+            if pause is not None:
+                self._wait_while_paused(job, pause)
+            if not hash_id:
+                raise FsError(500, "hash_failed",
+                              "Source checksum returned no job id")
+            time.sleep(HASH_POLL_IDLE_S)
+            snap = self._client.request(
+                "GET",
+                f"{src_base}/api/fs/hash/prepare/{_urlquote(hash_id)}",
+                timeout=HASH_POLL_HTTP_TIMEOUT)
+            self._update_prepare(job, snap, publish=publish)
+        if snap.get("status") != "completed" or not snap.get("sha256"):
+            err = snap.get("error") or snap.get("status") or "hash failed"
+            if snap.get("status") == "cancelled":
+                raise InterruptedError()
+            if "changed" in (err or "").lower():
+                raise FsError(409, "source_changed", err)
+            # Accurate failure — never pretend size=0 transfer started.
+            raise FsError(500, "hash_failed",
+                          f"Source checksum failed: {err}")
+        return {"size": snap["size"], "sha256": snap["sha256"],
+                "mtime_ns": snap.get("mtime_ns"), "path": snap.get("path")}
 
     def _stream_local(self, real_src: str, fh, offset: int, size: int,
                       job: dict, cancel: threading.Event,
@@ -962,13 +1110,18 @@ class TransferEngine:
         """Execute one file of a directory job without touching the queue."""
         parent_job["current_file"] = sub["dest_path"]
         src_base, src_path = sub["src_base"], sub["src_path"]
+        # Reuse the parent job's cancel/pause events and prepare progress.
         if src_base == "self":
             real_src = self.sandbox.authorize(src_path, "r")
-            size = os.path.getsize(real_src)
-            src_sha = self.file_hash(src_path)["sha256"]
-        else:
-            meta = self._source_meta(src_base, src_path)
+            meta = self._await_source_hash(parent_job, local_path=src_path)
             size, src_sha = meta["size"], meta.get("sha256")
+        else:
+            meta = self._await_source_hash(
+                parent_job, src_base=src_base, src_path=src_path)
+            size, src_sha = meta["size"], meta.get("sha256")
+            real_src = None
+        if parent_job.get("status") == "hashing":
+            self._set_status(parent_job, "running")
         parent_job["verify"]["expected"] = None   # per-file; verified inline
         dest_path = sub["dest_path"]
         os.makedirs(os.path.dirname(dest_path) or "/", exist_ok=True)

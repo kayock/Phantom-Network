@@ -1,5 +1,38 @@
 # TEST_REPORT.md — PHANTOM NETWORK
 
+## v1.2.2 results (2026-11-25)
+
+### Physical LAN qualification (v1.2.1 baseline, preserved)
+
+Station (`10.0.0.202`) → Portable 1 TB share
+`/run/media/kayock/KAYOCK-1TB/Phantom-Network-Transfers` using the Phantom
+Network transfer engine (destination-pull). Evidence file:
+`~/phantom-network-lab/large-file-qualify-v121.json`.
+
+| Size | Result | Throughput |
+|---|---|---|
+| 100 MB | SHA-256 verified | 6.3 MiB/s |
+| 1 GB | SHA-256 verified | 7.9 MiB/s |
+| 5 GB | SHA-256 verified, pause/resume | 7.4 MiB/s |
+| 10 GB | SHA-256 verified | 7.4 MiB/s |
+| 25 GB | SHA-256 verified | 7.5 MiB/s |
+| 50 GB | Independent SHA-256 verified | 8.6 MiB/s wall |
+
+Peak companion RSS ≈ 43 MB (Station) / ≈ 45 MB (Portable). Safe disposable
+move verified. Existing AI models untouched.
+
+**Honesty note:** the first 50 GB attempt under v1.2.1 failed cold because
+`/api/fs/hash` used a 30 s peer timeout. After manually pre-warming Station's
+hash cache the same 50 GB transfer completed. That is the defect v1.2.2
+corrects — ordinary users must not need the workaround.
+
+### v1.2.2 automated regressions
+
+`tests/unit/test_v122_checksum.py` — slow checksum (>30 s) completes without
+false interrupt; PeerClient default timeout unchanged; prepare jobs join;
+cancel works; changed sources fail prepare; verified deletion still refuses
+stale cache; Transfer Center exposes hashing status.
+
 ## v1.2.0 results (2026-11-25)
 
 Final battery: `python -m pytest tests/unit tests/integration -q` — counts

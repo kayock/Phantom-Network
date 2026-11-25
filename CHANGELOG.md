@@ -2,6 +2,29 @@
 
 All notable changes to PHANTOM NETWORK.
 
+## [1.2.2] — 2026-11-25
+
+Large-file checksum reliability after the physical 50 GB LAN qualification.
+
+### Fixed
+
+* **Cold source SHA-256 timeout.** Destination pulls called
+  `/api/fs/hash` with a single 30-second peer timeout. Cold hashing of a
+  50 GB file exceeded that window, so after three retries the job became
+  `interrupted` with `size=0`. Source checksum preparation is now a
+  joinable background job (`POST/GET /api/fs/hash/prepare`) polled with
+  short HTTP timeouts. Ordinary PeerClient defaults remain 10 seconds.
+  Transfer Center shows **Calculating source checksum** with measured
+  progress when available. Failed preparation reports `hash_failed`
+  instead of a misleading zero-byte transfer. Verified deletion still
+  re-hashes and never trusts the cache for destructive removal.
+
+### Physical evidence preserved
+
+* v1.2.1 LAN qualification through 50 GB (after manual hash-cache warm)
+  remains documented in `TEST_REPORT.md` and
+  `~/phantom-network-lab/large-file-qualify-v121.json`.
+
 ## [1.2.1] — 2026-11-25
 
 Physical-deployment corrections after the Z.ai v1.2.0 archive. Ubuntu

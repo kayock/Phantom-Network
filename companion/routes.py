@@ -103,6 +103,11 @@ def register_routes(api) -> None:
     r.add("GET", r"/api/fs/download", lambda req: api.fs_download(req))
     r.add("GET", r"/api/fs/zip", lambda req: api.fs_zip(req))
     r.add("GET", r"/api/fs/hash", lambda req: api.fs_hash(req))
+    r.add("POST", r"/api/fs/hash/prepare", lambda req: api.fs_hash_prepare(req))
+    r.add("GET", r"/api/fs/hash/prepare/([^/]+)",
+          lambda req: api.fs_hash_prepare_status(req))
+    r.add("POST", r"/api/fs/hash/prepare/([^/]+)/cancel",
+          lambda req: api.fs_hash_prepare_cancel(req))
     r.add("GET", r"/api/fs/walk", lambda req: api.fs_walk(req))
     r.add("POST", r"/api/fs/verified-delete", lambda req: api.fs_verified_delete(req))
     r.add("POST", r"/api/fs/share", lambda req: api.fs_share_add(req))
