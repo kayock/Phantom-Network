@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.3.1
+# PHANTOM NETWORK v1.4.0
 
 **Cross-Platform LAN Command Center, File Commander & Signal Laboratory**
 
@@ -7,9 +7,13 @@
 Phantom Network turns three or more computers on a private LAN into a
 coordinated fleet: a futuristic browser command center with network radar,
 a dual-pane File Commander across machines, SHA-256 verified file transfers,
-private GhostChat messaging, remote audio playback, push-to-talk intercom,
-and an audio Signal Laboratory — **with no cloud, no accounts, no Docker,
-and no AI model required**.
+private GhostChat messaging, **LAN voice calls (Phantom Voice)**,
+**household announcements (Phantom Broadcast)**, **shared media rooms
+(Phantom Media)**, **a shared clipboard across computers and phones
+(Phantom Clipboard)**, **mesh resilience diagnostics (Phantom Mesh)**,
+remote audio playback, push-to-talk intercom, an advanced acoustic Signal
+Laboratory (FEC + ARQ modem, morse practice), an installable mobile PWA —
+**with no cloud, no accounts, no Docker, and no AI model required**.
 
 ```
 ┌──────────────┐   UDP beacons + HTTP    ┌──────────────┐
@@ -38,7 +42,7 @@ and no AI model required**.
   **50 GB** with independent SHA-256 checks, pause/resume, and roughly
   **7–9 MiB/s** throughput at about **43–45 MB** companion RSS. External
   volumes (for example a 1 TB ext4 drive) can be authorized as dedicated
-  transfer directories. v1.3.1 fixes cold source-checksum timeouts so huge
+  transfer directories. v1.4.0 fixes cold source-checksum timeouts so huge
   files no longer need a manual hash-cache warm-up before the first pull.
 
 ## Screenshots

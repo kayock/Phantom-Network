@@ -71,7 +71,7 @@ export async function render(container) {
         el('div', { class: 'row', style: { gap: '4px' } },
           el('button', { class: 'btn small', title: 'New direct message', onclick: newDirect }, '+'),
           el('button', { class: 'btn small', title: 'New group (computers + phones)', onclick: newGroup }, 'Group'),
-          el('button', { class: 'btn small', title: 'Broadcast to every online device', onclick: () => { current = 'broadcast:all'; drawConvs(); loadHistory(); } }, '📻'))));
+          el('button', { class: 'btn small', title: 'Broadcast to every online device', onclick: () => { current = 'broadcast:all'; drawConvs(); loadHistory(); paintHead(); } }, '📻'))));
     convList.appendChild(head);
 
     if (!convs.length) {
@@ -102,7 +102,7 @@ export async function render(container) {
       : c.conv.startsWith('system:') ? '🔔' : '◌';
     return el('div', {
       class: 'conv-item' + (current === c.conv ? ' active' : ''),
-      onclick: () => { current = c.conv; state.chatUnread[c.conv] = 0; updateChatBadge(); state.savePrefs(); prefs.chat_conv = current; replyTo = null; drawConvs(); loadHistory(); },
+      onclick: () => { current = c.conv; state.chatUnread[c.conv] = 0; updateChatBadge(); state.savePrefs(); prefs.chat_conv = current; replyTo = null; drawConvs(); loadHistory(); paintHead(); },
     },
       el('div', { class: 'conv-title' },
         el('span', {}, `${icon} ${c.title || c.conv}`),
@@ -122,6 +122,7 @@ export async function render(container) {
     const d = devices.find(x => x.display_name.toLowerCase().includes(res.to.toLowerCase()));
     if (!d) { toast('No device matches', 'warn'); return; }
     current = (d.kind === 'mobile' ? 'mobile:' : 'direct:') + d.device_id;
+    paintHead();
     drawConvs(); loadHistory();
   }
 
@@ -579,6 +580,8 @@ export async function render(container) {
   }
   drawConvs();
   await loadHistory();
+  paintHead();      // repaint after deep-link / restore so the header never
+                    // shows "Select a conversation" for an active conv
 
   return () => {
     window.removeEventListener('pn-chat-any', onChat);

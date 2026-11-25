@@ -70,6 +70,24 @@ def default_config() -> dict:
         "intercom_enabled": True,
         # --- mobile host (v1.3.0) ---------------------------------------
         "mobile_host_enabled": True,        # host/relay browser clients
+        # v1.4.0 — Phantom Signal feature flags (failover stays OFF until
+        # the user opts in — documented design decision)
+        "voice_enabled": True,
+        "screen_enabled": True,
+        "broadcast_enabled": True,
+        "media_enabled": True,
+        "mobile_failover_enabled": False,
+        "voice_stun_servers": [],
+        # v1.4.0 — Phantom Clipboard (steer addition).  AUTO SYNC IS OFF
+        # BY DEFAULT; participation on; honest 256 KiB / 2 MiB caps.
+        "clipboard_enabled": True,
+        "clipboard_auto_enabled": False,
+        "clipboard_paused": False,
+        "clipboard_private_mode": False,
+        "clipboard_participating": True,
+        "clipboard_retention_days": 30,
+        "clipboard_max_bytes": 262144,
+        "clipboard_max_image_bytes": 2097152,
         "mobile_client_ttl_ms": 45000,      # heartbeat TTL before "offline"
         "mobile_max_attachment_mb": 50,     # per chat-file / voice note
         # --- monitoring alerts (v1.3.0) ---------------------------------

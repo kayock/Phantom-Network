@@ -1,12 +1,4 @@
-# Upgrade Guide — to v1.3.2
-
-## From v1.3.1 → v1.3.2
-
-Same procedure as below (replace the application tree, keep the data
-directory). v1.3.2 is a targeted routing/discovery repair — no schema
-migration beyond what v1.3.1 already applied.
-
-# Upgrade Guide — to v1.3.1 (baseline)
+# Upgrade Guide — to v1.3.1
 
 One procedure per machine, about five minutes. Nothing is reinstalled,
 re-qualified or re-configured beyond the steps below.
@@ -71,3 +63,63 @@ Install the upgrade on the three machines, verify mobile messaging per
 step 5, publish the release. **No further exhaustive physical
 qualification campaign is required** — the 50 GB transfer qualification
 of v1.2.2 remains valid (the engine is byte-identical).
+
+---
+
+# Upgrading to v1.4.0 (from v1.3.1 / v1.3.2)
+
+## What the upgrade preserves
+
+Everything: companion identity, mobile client identities + secrets +
+inboxes, registered peers, shares, message history, transfer history,
+favorites, automation jobs, notification preferences, auth settings,
+TLS configuration. Migration schema **3** runs automatically on first
+boot, **backs up** every state file it touches to
+`data/migrations/v<from>-<timestamp>/`, and only ADDS the new feature
+flags (voice/screen/broadcast/media ON; mobile failover OFF;
+clipboard auto-sync OFF; clipboard caps/retention defaults).
+
+## Steps
+
+1. Stop the running companion.
+2. (Cheap extra safety) copy the whole data dir aside — the migration
+   backup covers state files, not your shares.
+3. Replace the application (unzip the release over the install, or
+   re-run the installer — both preserve the data dir).
+4. Start the companion. The log shows the migration step and
+   `companion serving on 0.0.0.0:<port>`.
+5. Hard-refresh the dashboard (Ctrl+Shift+R) — the service worker bumps
+   to v1.4.0 and offers "update available" automatically.
+
+## Rollback
+
+Stop the companion, restore the previous application version, and copy
+the migration backup files back over `data/` if you want the pre-upgrade
+flags removed. v1.3.1/v1.3.2 companions ignore unknown config keys, so
+a v1.4.0 config is also safe to keep when rolling back.
+
+## Mixed-version behavior
+
+Older (≤ v1.3.2) companions simply ignore the new endpoints/topics;
+they keep chatting, transferring and registering exactly as before.
+Newer capabilities are offered only to peers whose identity advertises
+them (capability flags in `/api/identity`).
+
+## New config keys (all optional)
+
+```json
+{
+  "voice_enabled": true,        "screen_enabled": true,
+  "broadcast_enabled": true,    "broadcast_tts_enabled": false,
+  "broadcast_quiet_hours": "22:00-07:00",
+  "media_enabled": true,
+  "mdns_enabled": false,
+  "mobile_failover_enabled": false,
+  "voice_stun_servers": [],
+  "clipboard_enabled": true,    "clipboard_auto_enabled": false,
+  "clipboard_paused": false,    "clipboard_private_mode": false,
+  "clipboard_participating": true, "clipboard_retention_days": 30,
+  "clipboard_max_bytes": 262144, "clipboard_max_image_bytes": 2097152,
+  "tls_dual": true, "tls_port": 0
+}
+```

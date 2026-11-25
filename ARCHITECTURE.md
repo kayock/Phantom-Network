@@ -190,3 +190,90 @@ amplitude ≤ 0.8, duration ≤ 30 s, 20 Hz–20 kHz, per-device enable switch.
   3. `sw.js` must never cache `/api/**`.
   4. Mobile registry secrets never leave the host except in the single
      registration response.
+
+---
+
+# v1.4.0 — Phantom Signal architecture
+
+## Module map (new in v1.4.0)
+
+```
+companion/
+  voice.py        call registry + signaling relay (WebRTC opaque blobs)
+  broadcast.py    announcements, profiles, groups, quiet hours, schedules
+  media.py        rooms, queues, cross-host stream URLs, playback state
+  mesh.py         exchange TTL, recovery backoff, reconciliation,
+                  optional mDNS, experimental failover (claim/ledger)
+  clipboard.py    shared clipboard: history/pins/dedupe/loop-guard,
+                  native-helper auto-sync (opt-in)
+  peers.py        + verify_peer() destination verification (60 s cache)
+  migration.py    schema 3: Phantom Signal + Clipboard flags (with backup)
+```
+
+All engines follow the established pattern: constructed by `App`, wired
+into `routes.py`, fan-out via `SSEHub` topics (`voice`, `broadcast`,
+`media_event`, `clipboard`) for desktops and the private `mobile` stream
+(`{type: ..., for: client_id}`) for phones, peer delivery via
+`PeerClient` + `verify_peer`.
+
+## Voice data flow
+
+```
+caller browser ──WebRTC(audio, P2P host candidates)──► callee browser
+      │            (LAN direct; companions never carry media)
+      │ signaling (offer/answer/ICE, opaque, ≤64 KiB)
+      ▼
+origin companion ──SSE voice topic──► local UIs
+      │
+      └─POST /api/voice/relay──► remote companion
+             │ creates MIRRORED Call (origin_host set)
+             ├─SSE voice topic──► its UIs
+             └─mobile stream──► its phones
+             answer/signal/end forwarded back to origin (state owner)
+```
+
+The mirror keeps ringing UIs correct on both sides; the origin's
+`_ring_watchdog` expires unanswered rings everywhere (45 s → missed +
+GhostChat record).
+
+## Trust / delivery rules (v1.3.2 lessons, generalized)
+
+1. **Destination identity**: `verify_peer(device_id, addr, port)` probes
+   `/api/identity` and matches the device id before the first relay in a
+   60-second window. An address alone is not an identity.
+2. **Presence honesty**: cached offline presence never blocks delivery —
+   delivery is attempted whenever an address exists (v1.3.2 rule), and
+   successful delivery refreshes presence.
+3. **Hosting vs logical recipient**: phones are addressed by client_id;
+   the host is a routing detail (`host_device_id`), resolved fresh per
+   delivery — locally via SSE, remotely via the host's relay endpoint.
+4. **Honest states**: every delivery reports `delivered` /
+   `delivered-silently` / `unavailable` per target — no aggregate
+   "success" fabrication.
+
+## Media streaming
+
+`/api/media/stream` opens the file through the same
+`open_download(sandbox, path)` guard as the File Commander and serves it
+with HTTP Range (206/416) and per-extension MIME types. Stream URLs are
+computed per viewer: same-host viewers use a relative path, others use
+the owner's LAN address (RFC1918-preferred). Queues persist in
+`media_rooms.json`; history in `media_history.jsonl` (200-event cap).
+
+## Clipboard safety model
+
+Entries are inert data: never executed. Dedupe by SHA-256 (identical
+payload bumps ts instead of re-storing). Loop prevention: origin id +
+hop cap (receivers never forward). Auto-sync is a 2 s poll through
+detected native helpers, gated by `clipboard_auto_enabled` (default
+OFF) + per-device participation + pause + private mode. Caps: text
+256 KiB, image 2 MiB (configurable, enforced with explicit size errors).
+
+## Experimental failover (OFF by default)
+
+`mobile_failover_enabled` gates `/api/mesh/claim` (secret-hash verified
+— SHA-256 of client_id|secret; raw secrets never stored or re-served)
+and `/api/mesh/ledger/:cid`. Claims are TTL-bound (10 min), advertised
+in identity, single-writer (newer claim wins; the returning old host
+yields). Inbox continuity: the claiming host pulls the tail from the
+previous host; merge is by message id (existing dedupe).

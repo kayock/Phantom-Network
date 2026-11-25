@@ -219,3 +219,85 @@ hatch: set `admin_local_only: false` for headless file-server setups.
   waveform, volume, play_at} → SSE `media_party` on the receiving
   companion; `POST /api/media/party/stop`.
 - SSE topics added: `mobile`, `alert`, `media_party`.
+
+---
+
+# v1.4.0 API additions (Phantom Signal)
+
+All endpoints return `{"ok": true, ...}` or an error envelope
+`{"ok": false, "error", "message"}`.  Unless marked **public**, endpoints
+require the optional auth token when `require_token` is enabled.
+
+## Voice
+| Method/Path | Description |
+| --- | --- |
+| `POST /api/voice/call` | `{mode: call|room|ptt, targets: [{kind, device_id|client_id, host_device_id}]}` → creates + relays the call; `409 already_ringing` guards simultaneous requests |
+| `POST /api/voice/answer` | `{call_id, accept}` — accept/decline; mirrored calls forward to the origin companion |
+| `POST /api/voice/signal` | `{call_id, kind: offer|answer|ice, payload}` — opaque SDP/ICE relay (≤64 KiB, ≤2000 msgs/call) |
+| `POST /api/voice/end` | `{call_id, reason}` |
+| `POST /api/voice/room/join` · `/room/leave` | `{room}` — group voice rooms |
+| `POST /api/voice/relay` | **public** host-to-host channel: `{etype, payload, origin_host, for_device?, for?}` — delivers to a local client/computer and creates mirrored call records on invites |
+| `GET /api/voice/state` | active calls (incl. mirrors with `origin_host`) + rooms |
+| `GET /api/voice/history?limit=` | append-only call history (missed/rejected marked) |
+
+SSE topics: desktop `voice` (invites/signals/updates); phones receive
+`{type: "voice"}` on the private mobile stream. Ring timeout 45 s →
+`missed` + GhostChat system message.
+
+## Broadcast
+| Method/Path | Description |
+| --- | --- |
+| `GET /api/broadcast/profiles` | 7 built-ins + custom + `tts_available` + quiet hours |
+| `POST /api/broadcast/profile` | `{name, tone, voice, urgency}` |
+| `GET/POST/DELETE /api/broadcast/group[s]` | device groups |
+| `POST /api/broadcast/announce` | `{text, tone, voice, urgency, ack, targets}` → per-target states `delivered` / `delivered-silently` / `unavailable` |
+| `POST /api/broadcast/incoming` · `/relay` | **public** peer delivery |
+| `POST /api/broadcast/ack` | `{id, who}` |
+| `GET/POST/DELETE /api/broadcast/schedule[s]` | HH:MM daily/weekday schedules (DST-safe) |
+| `GET /api/broadcast/history?limit=` | with `results`, `tone_state`, `tts_state`, `acknowledged` |
+
+Quiet hours: `broadcast_quiet_hours` config `"22:00-07:00"` (midnight
+wrap). Emergency urgency overrides only for the sender; participation
+settings are never overridden.
+
+## Media
+| Method/Path | Description |
+| --- | --- |
+| `GET /api/media/rooms` · `POST /api/media/room` · `DELETE /api/media/room/:id` | room lifecycle (cap 24) |
+| `POST /api/media/room/join` · `/leave` | membership |
+| `POST /api/media/enqueue` | `{room_id, path}` — PathSandbox-authorized only; computes cross-host stream URLs |
+| `POST /api/media/dequeue` · `/reorder` | queue edits |
+| `POST /api/media/control` | `{room_id, action: play|pause|stop|seek|next|prev|repeat|shuffle|volume, ...}` — volume clamped to 0.8 |
+| `GET /api/media/state?room_id=` | public room state + `server_now` + `offset_s` |
+| `GET /api/media/stream?path=` | Range-capable authorized streaming with media MIME types |
+| `GET /api/media/history` | last 200 room actions |
+
+## Mesh
+| Method/Path | Description |
+| --- | --- |
+| `GET /api/mesh/status` | failover/mdns flags, tracked exchange peers, recovery errors, claims |
+| `POST /api/mesh/claim` | **experimental** (flag-gated): `{client_id, client_secret, inbox_since}` → secret-hash-verified claim + inbox tail pull |
+| `GET /api/mesh/ledger/:client_id?since=` | **public** host-to-host inbox ledger (flag-gated) |
+
+## Clipboard
+| Method/Path | Description |
+| --- | --- |
+| `GET /api/clipboard/status` | flags, caps, retention, native-helper detection |
+| `GET /api/clipboard/items?q=&limit=` | history search (pinned first) |
+| `POST /api/clipboard/send` | `{kind, text|data_url, targets}` → per-target states; `duplicate: true` on suppression |
+| `POST /api/clipboard/pin` · `/clear` | `{id, pinned}` / `{pins_too}` |
+| `POST /api/clipboard/incoming` · `/relay` | **public** peer delivery (respects pause/private; hop ≤ 1) |
+| `POST /api/clipboard/os-copy` | native-helper clipboard write |
+| `POST /api/clipboard/settings` | `{clipboard_paused, clipboard_private_mode, clipboard_auto_enabled, clipboard_retention_days, clipboard_max_bytes, clipboard_max_image_bytes}` |
+
+## TLS (v1.4.0 usability)
+| Method/Path | Description |
+| --- | --- |
+| `GET /api/tls/status` | enabled/dual/ports, cert expiry + SANs, secure-feature list, plain-language notes |
+| `GET /api/tls/cert` | **public** PEM download for phone installation |
+
+## System
+- `GET /api/identity` now reports capabilities: `voice`, `screen`,
+  `broadcast`, `media`, `failover`, `clipboard`, `clipboard_auto`.
+- Migration schema 3 runs automatically with backup
+  (`migrations/v<from>-<stamp>/`).

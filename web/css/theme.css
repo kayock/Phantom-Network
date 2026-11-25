@@ -467,3 +467,12 @@ canvas.scope { width: 100%; height: 180px; display: block; background: var(--bg0
 .palette-item .pi-ico { width: 20px; text-align: center; }
 .palette-item .pi-hint { margin-left: auto; color: var(--faint); font-size: 11px; }
 .palette-empty { padding: 18px; color: var(--faint); text-align: center; font-size: 13px; }
+
+/* ---- v1.4.0 additions ---- */
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  border: 1px solid #3a3145; border-radius: 16px; background: #191322;
+  color: var(--fg-dim, #b9a8d0); cursor: pointer; font-size: 13px; }
+.chip.sel { border-color: var(--violet); color: var(--fg);
+  background: rgba(139, 92, 246, 0.14); }
+.small-btn { padding: 4px 10px; font-size: 12px; }
+.meter { border-radius: 4px; overflow: hidden; }

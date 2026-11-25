@@ -485,5 +485,44 @@ export async function render(container) {
   container.appendChild(autoPanel);
   await drawAuto();
   container.appendChild(dataPanel);
+
+  /* ---------- HTTPS & secure context (v1.4.0 steer) ---------- */
+  const tlsCard = el('div', { class: 'panel' },
+    el('h3', {}, 'HTTPS & secure context'),
+    el('div', { class: 'dim small', style: { lineHeight: '1.6' } },
+      'Phones need a trusted HTTPS origin for the microphone, WebRTC ' +
+      'voice and PWA install. Ordinary messaging and file sharing keep ' +
+      'working over plain HTTP — HTTPS is an OPTIONAL second listener ' +
+      'and never replaces it. No trust store is modified automatically.'),
+    el('div', { class: 'kvs', id: 'tls-kvs' }));
+  container.appendChild(tlsCard);
+  (async () => {
+    try {
+      const st = await api.get('', '/api/tls/status');
+      const rows = [
+        ['HTTP port', st.http_port],
+        ['HTTPS', st.enabled ? (st.dual ? `ON (dual listener) · port ${st.https_port}` : `ON (HTTPS-only) · port ${st.https_port}`) : 'off (default)'],
+        ['Certificate', st.cert_available ? `${st.cert_path} · expires ${st.cert_expiry || '?'}` : 'none generated'],
+        ['SANs', (st.sans || []).join(', ') || '—'],
+        ['Secure features unlocked', (st.secure_features || []).join(', ')],
+      ];
+      const kvs = tlsCard.querySelector('#tls-kvs');
+      for (const [k, v] of rows) {
+        kvs.appendChild(el('div', { class: 'kvrow' },
+          el('div', { class: 'k' }, k), el('div', { class: 'v' }, String(v))));
+      }
+      for (const n of (st.notes || [])) {
+        kvs.appendChild(el('div', { class: 'faint small', style: { marginTop: '6px' } }, n));
+      }
+      kvs.appendChild(el('div', { class: 'row mt' },
+        el('button', { class: 'btn small', onclick: () => {
+          location.href = '/api/tls/cert';
+        } }, '⇩ Download certificate (for phone install)')));
+    } catch (e) {
+      tlsCard.appendChild(el('div', { class: 'small', style: { color: 'var(--err)' } },
+        'TLS status unavailable: ' + errText(e)));
+    }
+  })();
+
   return () => {};
 }

@@ -1,3 +1,70 @@
+# Test Report
+
+## v1.4.0 — Phantom Signal qualification (this release)
+
+### Execution summary (all run against the shipped tree)
+
+| Suite | Count | Result | Type |
+| --- | --- | --- | --- |
+| Unit suite (`tests/unit/`) | 162 | 161 passed, 1 skipped | unit |
+| — incl. v1.4.0 engines | 26 | 26 passed | unit |
+| — incl. DSP eval harness (`test_v140_dsp.py`, node-runner) | 18 | 18 passed | simulated DSP (deterministic, seeded) |
+| — incl. v1.3.2 routing regressions (`test_v132_routing.py`) | 5 | 5 passed | unit |
+| — incl. conversation repairs (`test_v140_conversations.py`) | 7 | 7 passed | unit |
+| — v1.3.x migration suites | 18 | 18 passed, 1 skipped | unit |
+| Integration (`test_v140_signal_e2e.py`) | 11 | 11 passed | real companion subprocesses (127.0.0.1, deterministic registration) |
+| Shipped-JS suite (`tests/js/test_v140.mjs`) | 14 | 14 passed | node against shipped source |
+| JS syntax sweep | 27 modules | 0 failures | node --check (the v1.3.0 rule) |
+| Browser qualification (`scripts/browser_test_v140.py`) | 26 surfaces | 26 passed, 0 genuine console errors | real Chromium automation |
+| Screenshots captured | 27 | genuine v1.4.0 | docs/screenshots/v140-* |
+
+### What each test type means here
+
+- **Unit**: engines + state machines against fakes; deterministic.
+- **Simulated DSP**: shipped JS executed by node with seeded noise/
+  corruption channels; asserts BOTH clean decodes AND honest failures
+  (48k-audio-as-44.1k must NOT decode; truncated signals never fake
+  text).
+- **Real integration**: `python -m companion` subprocesses talking HTTP
+  — voice mirror cycle, broadcast delivery states, clipboard round-trip
+  + suppression + private mode, v1.3.2 routing regressions, live dual
+  HTTP+TLS listeners (openssl-generated cert, both ports probed), mobile
+  identity across "origins" incl. the takeover guard.
+- **Browser**: Playwright Chromium drives every desktop view (incl. all
+  8 Signal Lab tabs, a real practice session scored, and the acoustic
+  self-test executed) and all 9 mobile surfaces; console/pageerror
+  listeners recorded zero genuine errors.
+- **Actual audio hardware / physical Windows / real mobile hardware**:
+  NOT executed in this environment — same honest distinction as v1.3.x;
+  the deployment handoff verifies those on real machines.
+
+### v1.3.2 baseline verification
+- Published corrections fetched from the public release (`78ea0f4`) and
+  integrated as semantic patches; adopted regression suite passes
+  (5/5). Version markers: `companion/__init__.py` = 1.4.0, UI brand +
+  packaging + SW all v1.4.0.
+
+### Failures found and FIXED during qualification (no weakened assertions)
+1. `PeerClient` received string token providers → `'str' not callable'
+   silently turned peer deliveries "unavailable" — normalized to accept
+   both; integration tests now cover the real path.
+2. Voice `Call` mirror fields missing (silent patch no-op) — invite
+   relay 500'd; exposed by direct relay probe, fixed, covered.
+3. Voice invite routing dropped local publish for unresolvable
+   computer targets — fall-through restored (unit test caught it).
+4. Latent v1.3.1 defect: Signal Lab Waterfall + Modem tab buttons
+   existed but their functions never did (`tabWaterfall is not
+   defined`) — both tabs implemented; browser sweep now exercises them.
+5. Hamming(7,4) syndrome bit-order bug (would have "corrected" the
+   wrong bit) — caught by the eval-harness vectors before any release.
+6. DSP v2 packing used array `toString(2)` (comma-joined 13-bit words)
+   — roundtrip test caught it.
+
+### Skipped (1)
+- One v1.3.x platform-specific test skips by design outside its
+  platform (unchanged behavior).
+
+
 # TEST_REPORT.md — PHANTOM NETWORK
 
 ## v1.3.0 results (2026-11-25)

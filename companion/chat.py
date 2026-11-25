@@ -409,7 +409,7 @@ class ChatEngine:
         return msg
 
     def _event_text(self, msg: dict, direction: str) -> str:
-        who = msg["from"]["name"]
+        who = (msg.get("from") or {}).get("name") or "?"
         to_label = msg["to_id"] or "everyone"
         head = (msg["body"] or "")[:60]
         if msg.get("attachment"):
@@ -442,7 +442,8 @@ class ChatEngine:
                 if mc.get("client_id") == client_id:
                     return {"id": client_id, "local": False,
                             "host_device_id": peer.device_id,
-                            "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
+                            "address": prefer_lan_address(peer.addresses)
+                            or peer.addresses[0],
                             "port": peer.api_port}
         return None
 
@@ -451,19 +452,20 @@ class ChatEngine:
         targets: List[dict] = []
         me = self.identity()["device_id"]
         if to_kind == "direct":
-            me_id = me
-            # Same-host mobile → this companion: deliver locally (no peer hop).
-            if to_id == me_id:
-                targets.append({"id": me_id, "kind": "computer", "local": True,
+            # Same-host mobile → this companion: deliver locally (no hop).
+            if to_id == me:
+                targets.append({"id": me, "kind": "computer", "local": True,
                                 "address": "127.0.0.1", "port": 0})
             else:
                 peer = self.registry.get(to_id)
-                # Attempt delivery whenever we have an address. Requiring
-                # status=="online" made GhostChat fail with a red X whenever
-                # UDP beacons briefly missed the 12s TTL — even for reachable
-                # manual peers. _deliver updates success/failure honestly.
+                # v1.3.2 rule: attempt delivery whenever we have an address.
+                # Requiring status=="online" made GhostChat fail with a red X
+                # whenever UDP beacons briefly missed the 12 s TTL — even for
+                # reachable manual peers.  _deliver updates success/failure
+                # honestly and refreshes presence on success.
                 if peer and peer.addresses:
-                    addr = prefer_lan_address(peer.addresses) or peer.addresses[0]
+                    addr = (prefer_lan_address(peer.addresses)
+                            or peer.addresses[0])
                     targets.append({"id": peer.device_id, "kind": "computer",
                                     "address": addr,
                                     "port": peer.api_port})
@@ -486,14 +488,15 @@ class ChatEngine:
                     peer = self.registry.get(member)
                     if peer and peer.status == "online" and peer.addresses:
                         targets.append({"id": member, "kind": "computer",
-                                        "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
+                                        "address": peer.addresses[0],
                                         "port": peer.api_port})
         else:  # broadcast → every participating computer + every mobile client
             for peer in self.registry.all():
                 if peer.device_id != me and peer.status == "online" \
                         and peer.addresses and peer.participating:
                     targets.append({"id": peer.device_id, "kind": "computer",
-                                    "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
+                                    "address": prefer_lan_address(peer.addresses)
+                                    or peer.addresses[0],
                                     "port": peer.api_port})
             if self.mobile:
                 for c in self.mobile.all():
@@ -533,16 +536,20 @@ class ChatEngine:
                 return True
             except (PeerUnreachable, Exception):
                 return False
-        # Local delivery to THIS companion (mobile client → its host).
+        # Local delivery to THIS companion (mobile client → its host):
+        # the message is already stored by send(); re-key for the host view
+        # so GhostChat shows it under the phone conversation (v1.3.2).
         if target.get("local") and target.get("kind") == "computer":
-            # Message already stored by send(); re-key for the host view so
-            # GhostChat shows it under the phone conversation.
             host_view = dict(msg)
             host_view["outgoing"] = False
             frm = (msg.get("from") or {}).get("device_id") or ""
-            host_view["conv"] = conversation_key("direct", frm or "unknown")
+            # v1.4.0 canonical key: a phone conversation on ANY companion is
+            # mobile:<client_id> — the old direct:mob_* key produced
+            # duplicate sidebar entries with unresolvable mob_* titles
+            host_view["conv"] = conversation_key(
+                "mobile", frm) if frm.startswith("mob_") else \
+                conversation_key("direct", frm or "unknown")
             host_view["status"] = "delivered"
-            # Avoid double-inserting the sender copy; publish host-side view.
             if host_view["conv"] != msg.get("conv"):
                 self._store_and_publish(host_view)
             msg["status"] = "delivered"
@@ -558,8 +565,9 @@ class ChatEngine:
             else:
                 msg.setdefault("delivered_to", []).append(target["id"])
                 msg["status"] = "delivered"
-            # Successful HTTP delivery proves the peer is reachable — refresh
-            # presence so the UI stops showing a false offline flag.
+            # Successful HTTP delivery proves the peer is reachable —
+            # refresh presence so the UI stops showing a false offline flag
+            # (v1.3.2 correction: stale presence is never definitive).
             try:
                 peer = self.registry.get(target["id"])
                 if peer:
@@ -578,6 +586,68 @@ class ChatEngine:
         if self.sse:
             self.sse.publish("mobile", {"type": mtype, "for": client_id,
                                         "data": payload})
+
+    # ------------------------------------------------------------------
+    # system events (voice missed calls, automation, broadcast receipts)
+    # ------------------------------------------------------------------
+    def system_event(self, text: str, targets: Optional[List[dict]] = None,
+                     kind: str = "system", **meta) -> None:
+        """Record a system notice into the recipients' conversations.
+
+        ``targets``: descriptors {"kind": computer|mobile, "device_id"|
+        "client_id", "host_device_id", "name"}.  Computers get a system
+        message; phones get an inbox entry via the normal delivery path
+        (locally or through their hosting companion).  Nothing is
+        fabricated: unreachable targets are skipped silently here — the
+        caller decides whether to surface that.
+        """
+        me = self.identity()
+        sender = {"device_id": "system", "name": "Phantom",
+                  "kind": "computer"}
+        for t in (targets or []):
+            try:
+                if t.get("kind") == "mobile":
+                    tid = t.get("client_id") or ""
+                    if not tid:
+                        continue
+                    host = self._mobile_host_for(tid)
+                    if t.get("host_device_id") and not host:
+                        host = {"local": False,
+                                "host_device_id": t["host_device_id"]}
+                    if not host:
+                        continue
+                    msg = {
+                        "id": new_id("msg"), "ts": now_ms(),
+                        "from": sender,
+                        "to_kind": "mobile", "to_id": tid,
+                        "body": text, "attachment": None,
+                        "status": "sent", "outgoing": False,
+                        "conv": None, "meta": {"kind": kind, **meta},
+                    }
+                    msg["conv"] = self._recipient_conv(msg)
+                    self._deliver({"kind": "mobile", "id": tid, **host},
+                                  msg)
+                else:
+                    did = t.get("device_id") or ""
+                    msg = {
+                        "id": new_id("msg"), "ts": now_ms(),
+                        "from": sender,
+                        "to_kind": "system", "to_id": "alerts",
+                        "body": text, "attachment": None,
+                        "status": "sent", "outgoing": False,
+                        "conv": "system:alerts",
+                        "meta": {"kind": kind, **meta},
+                    }
+                    if not did or did == me["device_id"]:
+                        self._store_and_publish(msg)
+                    else:
+                        peer = self.registry.get(did)
+                        if peer and peer.addresses:
+                            self._deliver({"id": did, "kind": "computer",
+                                           "address": peer.addresses[0],
+                                           "port": peer.api_port}, msg)
+            except Exception:
+                continue
 
     # ------------------------------------------------------------------
     # receiving
@@ -1023,12 +1093,13 @@ class ChatEngine:
     # ------------------------------------------------------------------
     # queries
     # ------------------------------------------------------------------
-
     def _remote_mobile_title(self, client_id: str) -> str:
+        """Name of a phone hosted by ANOTHER companion, from identity
+        payloads.  Returns '' when unknown — callers fall back honestly."""
         for peer in self.registry.all():
             for mc in (getattr(peer, "mobile_clients", None) or []):
                 if mc.get("client_id") == client_id:
-                    return mc.get("name") or mc.get("display_name") or client_id
+                    return mc.get("name") or mc.get("display_name") or ""
         return ""
 
     def _remote_mobile_online(self, client_id: str) -> bool:
@@ -1037,7 +1108,8 @@ class ChatEngine:
                 continue
             for mc in (getattr(peer, "mobile_clients", None) or []):
                 if mc.get("client_id") == client_id:
-                    return bool(mc.get("online") or mc.get("status") == "online")
+                    return bool(mc.get("online")
+                                or mc.get("status") == "online")
         return False
 
     def conversations(self) -> List[dict]:
@@ -1070,30 +1142,57 @@ class ChatEngine:
                          if msg.get("attachment") else "")
             if not msg.get("outgoing"):
                 entry["outgoing"] = False
+                entry.setdefault("_from_name",
+                                 (msg.get("from") or {}).get("name") or "")
                 if msg["to_kind"] in ("direct", "mobile"):
                     entry["peer_id"] = msg["from"]["device_id"] \
                         if not msg["from"]["device_id"].startswith("mob_") \
                         else (msg["from"].get("host_device_id") or "")
                 if msg["ts"] > self._read_marks.get(conv, 0):
                     entry["unread"] += 1
+        # v1.4.0 — legacy duplicate-key merge: old direct:mob_* rows move
+        # into the canonical mobile:<client_id> conversation (messages are
+        # NOT touched; only the sidebar view merges).
+        for conv in [c for c in list(by_conv)
+                     if c.startswith("direct:mob_")]:
+            canonical = "mobile:" + conv.split(":", 1)[1]
+            dst = by_conv.setdefault(canonical, {
+                "conv": canonical, "kind": "mobile",
+                "peer_id": conv.split(":", 1)[1],
+                "title": "", "last_ts": 0, "last_body": "",
+                "unread": 0, "outgoing": True, "kind_of_peer": "mobile",
+                "icon": "📱"})
+            src = by_conv.pop(conv)
+            if src["last_ts"] >= dst["last_ts"]:
+                dst["last_ts"] = src["last_ts"]
+                dst["last_body"] = src["last_body"]
+            dst["unread"] = dst.get("unread", 0) + src.get("unread", 0)
+            if not src.get("outgoing", True):
+                dst["outgoing"] = False
+
         # decorate titles from registry / groups / hosted mobile clients
         for conv, entry in by_conv.items():
             kind, key = conv.split(":", 1)
-            if kind == "direct":
+            if kind == "direct" and not key.startswith("mob_"):
                 peer = self.registry.get(key)
                 entry["title"] = peer.display_name() if peer else key
                 peer_online = peer.status == "online" if peer else False
                 entry["online"] = peer_online
+                entry["icon"] = "💻"
             elif kind == "mobile":
                 client = self.mobile.get(key) if self.mobile else None
                 if client is not None:
                     entry["title"] = client.name or key
                     entry["online"] = bool(client.online)
+                    entry["icon"] = client.icon or "📱"
                 else:
-                    # Phone may be hosted by another companion — look up the
-                    # name from peer identity payloads; never crash the sidebar.
-                    entry["title"] = self._remote_mobile_title(key) or key
+                    # Phone may be hosted by another companion — resolve the
+                    # name from peer identity payloads; never crash the
+                    # sidebar (v1.3.2 null-safe handling).
+                    entry["title"] = (self._remote_mobile_title(key)
+                                      or entry.get("_from_name") or key)
                     entry["online"] = self._remote_mobile_online(key)
+                    entry["icon"] = "📱"
                 entry["kind_of_peer"] = "mobile"
             elif kind == "group":
                 group = self._find_group(key)
@@ -1102,7 +1201,24 @@ class ChatEngine:
                 entry["title"] = "System Alerts"
             else:
                 entry["title"] = "Broadcast"
-        return sorted(by_conv.values(), key=lambda e: -e["last_ts"])
+                # v1.4.0 — temporary/test clients: hide conversations whose phone
+        # identity no longer exists anywhere (not hosted here, not hosted by
+        # any known peer) AND whose last message is older than 24 h.  The
+        # messages themselves are retained — nothing is deleted.
+        import time as _t
+        cutoff = now_ms() - 24 * 3600 * 1000
+        out = []
+        for conv, entry in by_conv.items():
+            if conv.startswith("mobile:"):
+                cid = conv.split(":", 1)[1]
+                known = (self.mobile is not None and
+                         self.mobile.get(cid) is not None) or \
+                    bool(self._remote_mobile_title(cid))
+                if not known and entry.get("last_ts", 0) < cutoff:
+                    continue
+            out.append(entry)
+        out.sort(key=lambda e: e.get("last_ts", 0), reverse=True)
+        return out
 
     def history(self, conv: str = "", q: str = "", limit: int = 200,
                 before_ts: int = 0) -> List[dict]:
@@ -1118,7 +1234,9 @@ class ChatEngine:
             if needle:
                 hay = (msg.get("body", "") + " " +
                        (msg.get("attachment") or {}).get("name", "")).lower()
-                if needle not in hay and needle not in str((msg.get("from") or {}).get("name") or "").lower():
+                if needle not in hay and needle not in \
+                        str((msg.get("from") or {}).get("name")
+                            or "").lower():
                     continue
             out.append(msg)
             if len(out) >= limit:

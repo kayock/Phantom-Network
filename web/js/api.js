@@ -203,7 +203,8 @@ class LiveStream {
       // EventSource auto-reconnects; nothing else to do
     };
     for (const topic of ['event', 'chat', 'transfer', 'intercom', 'presence',
-                         'mobile', 'alert', 'media_party']) {
+                         'mobile', 'alert', 'media_party', 'voice',
+                         'broadcast', 'media_event', 'clipboard']) {
       es.addEventListener(topic, (ev) => {
         let data = null;
         try { data = JSON.parse(ev.data); } catch { data = null; }

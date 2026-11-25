@@ -21,6 +21,18 @@ from typing import Optional
 from . import PROTOCOL_VERSION, __version__, __product__
 from .httpd import Request, Response, error_response, file_response, json_response
 from .util import now_ms
+from .errors import FsError
+from .voice import VoiceError
+from .broadcast import BroadcastError
+from .media import MediaError
+from .clipboard import ClipboardError
+
+
+def _mesh_result(fn):
+    try:
+        return json_response(fn())
+    except Exception as exc:
+        return json_response({"ok": False, "error": str(exc)}, 403)
 
 WEB_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -188,6 +200,167 @@ def register_routes(api) -> None:
     r.add("POST", r"/api/audio/stop", lambda req: json_response(
         {"ok": True, **api.audio.stop()}))
     r.add("POST", r"/api/audio/enabled", lambda req: api.audio_enabled(req))
+
+    # -- voice (v1.4.0 — Phantom Voice) ------------------------------------
+    def _v_err(fn):
+        def wrap(req):
+            try:
+                return json_response(fn(req))
+            except VoiceError as exc:
+                return fs_error_response(FsError(exc.status, exc.code,
+                                                 exc.message))
+        return wrap
+
+    r.add("POST", r"/api/voice/call", _v_err(
+        lambda req: api.voice_call(req)))
+    r.add("POST", r"/api/voice/answer", _v_err(
+        lambda req: api.voice_answer(req)))
+    r.add("POST", r"/api/voice/signal", _v_err(
+        lambda req: api.voice_signal(req)))
+    r.add("POST", r"/api/voice/end", _v_err(
+        lambda req: api.voice_end(req)))
+    r.add("POST", r"/api/voice/room/join", _v_err(
+        lambda req: api.voice_room_join(req)))
+    r.add("POST", r"/api/voice/room/leave", _v_err(
+        lambda req: api.voice_room_leave(req)))
+    r.add("POST", r"/api/voice/relay", lambda req: json_response(
+        api.voice_relay(req)), auth=False)
+    r.add("GET", r"/api/voice/state", _v_err(
+        lambda req: api.voice.state()))
+    r.add("GET", r"/api/voice/history", _v_err(
+        lambda req: api.voice.history_list(
+            int(req.q("limit", "100") or 100))))
+
+    # -- broadcast (v1.4.0) -------------------------------------------------
+    def _b_err(fn):
+        def wrap(req):
+            try:
+                return json_response(fn(req))
+            except BroadcastError as exc:
+                return fs_error_response(FsError(exc.status, exc.code,
+                                                 exc.message))
+        return wrap
+
+    r.add("GET", r"/api/broadcast/profiles", _b_err(
+        lambda req: api.broadcast.profiles()))
+    r.add("POST", r"/api/broadcast/profile", _b_err(
+        lambda req: api.broadcast.profile_add(req.json() or {})))
+    r.add("GET", r"/api/broadcast/groups", _b_err(
+        lambda req: api.broadcast.groups()))
+    r.add("POST", r"/api/broadcast/group", _b_err(
+        lambda req: api.broadcast.group_save(req.json() or {})))
+    r.add("DELETE", r"/api/broadcast/group/([^/]+)", _b_err(
+        lambda req: api.broadcast.group_delete(req.params[""])))
+    r.add("GET", r"/api/broadcast/history", _b_err(
+        lambda req: api.broadcast.history(int(req.q("limit", "100") or 100))))
+    r.add("POST", r"/api/broadcast/announce", _b_err(
+        lambda req: api.broadcast.announce(req.json() or {})))
+    r.add("POST", r"/api/broadcast/incoming", _b_err(
+        lambda req: api.broadcast.incoming((req.json() or {})
+                                           .get("announcement") or {})),
+        auth=False)
+    r.add("POST", r"/api/broadcast/relay", _b_err(
+        lambda req: api.broadcast.relay(req.json() or {})), auth=False)
+    r.add("POST", r"/api/broadcast/ack", _b_err(
+        lambda req: api.broadcast.acknowledge(
+            str((req.json() or {}).get("id") or ""),
+            (req.json() or {}).get("who") or {})))
+    r.add("GET", r"/api/broadcast/schedules", _b_err(
+        lambda req: api.broadcast.schedules()))
+    r.add("POST", r"/api/broadcast/schedule", _b_err(
+        lambda req: api.broadcast.schedule_save(req.json() or {})))
+    r.add("DELETE", r"/api/broadcast/schedule/([^/]+)", _b_err(
+        lambda req: api.broadcast.schedule_delete(req.params[""])))
+
+    # -- media (v1.4.0) ------------------------------------------------------
+    def _m_err(fn):
+        def wrap(req):
+            try:
+                return json_response(fn(req))
+            except MediaError as exc:
+                return fs_error_response(FsError(exc.status, exc.code,
+                                                 exc.message))
+        return wrap
+
+    r.add("GET", r"/api/media/rooms", _m_err(lambda req: api.media.rooms()))
+    r.add("POST", r"/api/media/room", _m_err(
+        lambda req: api.media.room_create(req.json() or {})))
+    r.add("DELETE", r"/api/media/room/([^/]+)", _m_err(
+        lambda req: api.media.room_delete(req.params[""])))
+    r.add("POST", r"/api/media/room/join", _m_err(
+        lambda req: api.media.room_join(req.json() or {})))
+    r.add("POST", r"/api/media/room/leave", _m_err(
+        lambda req: api.media.room_leave(req.json() or {})))
+    r.add("POST", r"/api/media/enqueue", _m_err(
+        lambda req: api.media.enqueue(req.json() or {})))
+    r.add("POST", r"/api/media/dequeue", _m_err(
+        lambda req: api.media.dequeue(req.json() or {})))
+    r.add("POST", r"/api/media/reorder", _m_err(
+        lambda req: api.media.reorder(req.json() or {})))
+    r.add("POST", r"/api/media/control", _m_err(
+        lambda req: api.media.control(req.json() or {})))
+    r.add("GET", r"/api/media/state", _m_err(
+        lambda req: api.media.state(req.q("room_id", ""))))
+    r.add("GET", r"/api/media/history", _m_err(
+        lambda req: api.media.history(req.q("room_id", ""),
+                                      int(req.q("limit", "100") or 100))))
+    r.add("GET", r"/api/media/stream", _m_err(
+        lambda req: api.media_stream(req)))
+
+    # -- tls status / cert export (v1.4.0 steer: HTTPS usability) -----------
+    r.add("GET", r"/api/tls/status", lambda req: json_response(
+        api.tls_status()))
+    r.add("GET", r"/api/tls/cert", lambda req: api.tls_cert_download(),
+          auth=False)
+
+    # -- clipboard (v1.4.0, steer addition) ----------------------------------
+    def _c_err(fn):
+        def wrap(req):
+            try:
+                return json_response(fn(req))
+            except ClipboardError as exc:
+                return fs_error_response(FsError(exc.status, exc.code,
+                                                 exc.message))
+        return wrap
+
+    r.add("GET", r"/api/clipboard/status", _c_err(
+        lambda req: api.clipboard.status()))
+    r.add("GET", r"/api/clipboard/items", _c_err(
+        lambda req: api.clipboard.items(req.q("q", ""),
+                                        int(req.q("limit", "100") or 100))))
+    r.add("POST", r"/api/clipboard/send", _c_err(
+        lambda req: api.clipboard.send(req.json() or {})))
+    r.add("POST", r"/api/clipboard/pin", _c_err(
+        lambda req: api.clipboard.pin(
+            str((req.json() or {}).get("id") or ""),
+            bool((req.json() or {}).get("pinned")))))
+    r.add("POST", r"/api/clipboard/clear", _c_err(
+        lambda req: api.clipboard.clear(
+            bool((req.json() or {}).get("pins_too")))))
+    r.add("POST", r"/api/clipboard/incoming", _c_err(
+        lambda req: api.clipboard.incoming(
+            (req.json() or {}).get("entry") or {})), auth=False)
+    r.add("POST", r"/api/clipboard/relay", _c_err(
+        lambda req: api.clipboard.relay(req.json() or {})), auth=False)
+    r.add("POST", r"/api/clipboard/os-copy", _c_err(
+        lambda req: json_response(
+            {"ok": api.clipboard.os_copy(str((req.json() or {})
+                                             .get("text") or ""))})))
+    r.add("POST", r"/api/clipboard/settings", _c_err(
+        lambda req: api.clipboard_settings(req.json() or {})))
+
+    # -- mesh (v1.4.0) -------------------------------------------------------
+    r.add("GET", r"/api/mesh/status", lambda req: json_response(
+        api.mesh.status()))
+    r.add("POST", r"/api/mesh/claim", lambda req: _mesh_result(
+        lambda: api.mesh.claim(str((req.json() or {}).get("client_id") or ""),
+                               str((req.json() or {}).get("client_secret")
+                                   or ""),
+                               int((req.json() or {}).get("inbox_since")
+                                   or 0))))
+    r.add("GET", r"/api/mesh/ledger/([^/]+)", lambda req: json_response(
+        api.mesh.ledger(req.params[""], int(req.q("since", "0") or 0))),
+        auth=False)
 
     # -- intercom -----------------------------------------------------------
     r.add("GET", r"/api/intercom/sessions", lambda req: json_response(

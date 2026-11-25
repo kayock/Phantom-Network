@@ -85,3 +85,45 @@ automatically.
   phone cannot reach the fleet (documented host dependency).
 - `mobile_host_enabled: false` disables hosting; registered entries remain
   visible but cannot reconnect.
+
+---
+
+# v1.4.0 additions (Phantom Signal)
+
+## New tabs
+
+The mobile PWA now has **Voice** (☎), **Media** (♪) and **Clip** (⧉)
+tabs alongside Home/Chat/Devices/Files/More.
+
+- **Voice** — call any online computer or phone; the incoming ring is a
+  full-screen sheet with Accept/Decline; in-call mute + hangup +
+  duration; microphone access requires the HTTPS origin (see the Secure
+  context card). Announce quick-send posts to Broadcast.
+- **Media** — room list with play/pause/next/stop; streams come from the
+  owning computer over HTTP Range; sync precision is honestly stated as
+  ±50–150 ms.
+- **Clip** — clipboard history with search, copy-back and pin; manual
+  sync (mobile OSes do not allow background clipboard watching).
+- **Home quick actions** — ☎ Voice and ⧉ Clipboard buttons.
+- **More → Secure context** — live diagnostic: secure origin, mic API,
+  WebRTC availability, with the exact HTTPS instructions when blocked.
+- **More → Identity & recovery** — copy your `client_id` +
+  `client_secret` as JSON. Moving between HTTP and HTTPS origins starts
+  a fresh browser profile; use "Restore an existing identity" in the
+  onboarding to re-attach the SAME identity (the host verifies the
+  secret — possession IS ownership; a bare id without the secret is
+  refused).
+
+## Broadcasts and missed calls on phones
+
+Broadcast announcements arrive as a toast + tone and are recorded in the
+Broadcast conversation. Missed voice calls land in the system-alerts
+conversation via the host.
+
+## Honest limitations (unchanged and still true)
+
+Browser notifications fire only while the tab is alive; a locked iPhone
+cannot be woken by a local web push without platform infrastructure we
+do not have. Voice calls need the screen on (Safari mutes suspended
+pages). The installable PWA, offline shell, persistent inbox and
+versioned service-worker caches are preserved from v1.3.x.

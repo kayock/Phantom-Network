@@ -28,7 +28,13 @@ import time
 
 from .util import read_json, atomic_write_json
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# v1.4.0 (schema 3) adds Phantom Signal feature flags.  Config-only
+# additions; the flag values themselves come from default_config() so an
+# upgrade never changes behavior the user did not opt into — the only
+# non-default is mobile_failover_enabled which stays OFF (documented
+# decision, user approval required).
 
 # Files whose content migrations may touch; each is backed up first.
 STATE_FILES = ["config.json", "known_peers.json", "messages.jsonl",
@@ -51,6 +57,30 @@ class MigrationReport:
             "backed_up": self.backed_up,
             "steps": self.steps,
         }
+
+
+def _migrate_2_to_3(data_dir: str, backup_dir: str) -> str:
+    """v1.3.1 → v1.4.0: add Phantom Signal flags (voice, screen,
+    broadcast, media — default ON; mobile failover — default OFF) and
+    keep any user-set values."""
+    config_path = os.path.join(data_dir, "config.json")
+    config = read_json(config_path, None) or {}
+    flags = {
+        "voice_enabled": True, "screen_enabled": True,
+        "broadcast_enabled": True, "media_enabled": True,
+        "mobile_failover_enabled": False,
+        # steer addition — Phantom Clipboard (auto-sync stays OFF)
+        "clipboard_enabled": True, "clipboard_auto_enabled": False,
+        "clipboard_paused": False, "clipboard_private_mode": False,
+        "clipboard_participating": True, "clipboard_retention_days": 30,
+        "clipboard_max_bytes": 262144,
+        "clipboard_max_image_bytes": 2097152,
+    }
+    for k, v in flags.items():
+        config.setdefault(k, v)
+    atomic_write_json(config_path, config)
+    return "added Phantom Signal feature flags (voice/screen/broadcast/" \
+           "media on; mobile failover off by default)"
 
 
 def _detect_from_version(config: dict) -> int:

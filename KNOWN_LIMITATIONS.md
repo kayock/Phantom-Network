@@ -192,13 +192,66 @@ v1.2.2 worktree shows the identical behavior. Real deployments are
 unaffected; the transfer engine is byte-identical to the physically
 verified v1.2.2.
 
-## v1.3.2 notes
+---
 
-* iPhone microphone / voice messages still require optional HTTPS + manual
-  certificate trust on the phone (see HTTPS_SETUP.md). Plain HTTP LAN URLs
-  cannot grant `getUserMedia` in Safari — that is a browser platform rule,
-  not a Phantom Network authentication gate.
-* Hosted-phone chat still stores a host-side outgoing copy on the companion
-  that registered the phone; that is expected. Destination computers receive
-  their own copy when delivery succeeds.
+# v1.4.0 (Phantom Signal + Clipboard) — known limitations
 
+## Voice
+
+- WebRTC connects via host candidates on one subnet; VLANs/subnet
+  boundaries or client isolation on Wi-Fi will fail. No TURN server is
+  used (deliberate — no mandatory external infrastructure); configure
+  `voice_stun_servers` only if you know you need it.
+- iOS Safari suspends audio capture when the page is backgrounded — a
+  locked phone cannot keep a call going. This is platform policy.
+- Output-device selection needs `setSinkId` (Chromium desktops); other
+  browsers use the system default.
+- Mirrored cross-companion calls keep state on the ORIGIN companion; if
+  the origin dies mid-call the mirrored side ends the call rather than
+  hanging (verified by the watchdog expiry).
+- Group voice rooms coordinate membership via the companion but each
+  browser still connects peer-to-peer; rooms do not mix audio (mesh of
+  direct pairs, not an MCU).
+
+## Broadcast
+
+- Local TTS requires a system voice (espeak-ng/say/SAPI). Absent voices
+  are reported honestly (`unavailable:no_local_voice`).
+- Phone banners require the app open or the tab alive; no push wakes a
+  locked phone.
+
+## Media
+
+- Playback sync is ±50–150 ms on a LAN — not sample-accurate (measured,
+  not claimed).
+- No transcoding: playback depends on each browser's codecs; MKV audio
+  tracks play on Chromium but not on all iOS versions.
+- Queued files must live in authorized shares of the device that owns
+  them; the owner must be online to stream.
+
+## Mesh
+
+- mDNS/DNS-SD discovery is an optional, minimal provider (off by
+  default); multicast may be blocked by some APs — UDP beacons and
+  manual registration remain the primary sources.
+- Mobile-host failover is EXPERIMENTAL and disabled by default. Claims
+  are TTL-bound and secret-hash-verified; a phone whose host returns
+  yields to the newer claim. Not yet exercised on real multi-host
+  deployments — treat as beta.
+
+## Clipboard
+
+- Wayland: helpers depend on `wl-clipboard` being installed and on the
+  compositor permitting clipboard access from background processes.
+- Phones sync manually (platform restriction on background clipboard
+  reading for web pages).
+- No sensitive-content detection — we make no claim of recognizing
+  passwords; use pause/private mode instead.
+
+## Screen sharing
+
+- Browser-native `getDisplayMedia`: Chromium desktops (screen/window/
+  tab), Safari 17+ (window/tab on macOS). Phones cannot share (mobile
+  browsers do not expose capture), but phones CAN VIEW a shared screen
+  in-session.
+- Remote input control is out of scope for this release by design.

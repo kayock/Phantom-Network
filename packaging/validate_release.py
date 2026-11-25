@@ -27,7 +27,7 @@ import zipfile
 import hashlib
 from pathlib import Path
 
-VERSION = "1.3.2"
+VERSION = "1.4.0"
 
 REQUIRED = [
     "companion/__init__.py", "companion/app.py", "companion/transfers.py",
@@ -47,6 +47,19 @@ REQUIRED = [
     "KNOWN_LIMITATIONS.md", "DEVELOPMENT_BACKLOG.md", "REFINEMENT_REPORT.md",
     "LOCALFORGE_HANDOFF.md", "CURSOR_DEPLOYMENT_HANDOFF.md", "LICENSE",
     "requirements.txt", "pytest.ini",
+    # v1.4.0 — Phantom Signal modules + guides
+    "companion/voice.py", "companion/broadcast.py", "companion/media.py",
+    "companion/mesh.py", "companion/clipboard.py",
+    "web/js/lib/rtc.js", "web/js/views/voice.js",
+    "web/js/views/broadcast.js", "web/js/views/media.js",
+    "web/js/views/clipboard.js", "web/js/views/mesh.js",
+    "web/js/mobile/app.js", "web/sw.js",
+    "docs/VOICE_GUIDE.md", "docs/BROADCAST_GUIDE.md", "docs/MEDIA_GUIDE.md",
+    "docs/SIGNAL_LAB_GUIDE.md", "docs/CLIPBOARD_GUIDE.md",
+    "tests/unit/test_v140_backends.py", "tests/unit/test_v140_dsp.py",
+    "tests/unit/test_v140_conversations.py", "tests/unit/test_v132_routing.py",
+    "tests/integration/test_v140_signal_e2e.py",
+    "tests/js/test_v140.mjs", "scripts/gen-lan-cert.sh",
 ]
 
 FORBIDDEN_PATTERNS = (

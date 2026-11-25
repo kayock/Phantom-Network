@@ -83,7 +83,7 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-echo "Installing Phantom Network v1.3.2 from $SRC → $DEST"
+echo "Installing Phantom Network v1.4.0 from $SRC → $DEST"
 mkdir -p "$DEST"
 rm -rf "$DEST/companion" "$DEST/web" "$DEST/packaging" "$DEST/scripts" "$DEST/sounds"
 cp -r "$SRC/companion" "$SRC/web" "$DEST/"

@@ -18,6 +18,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+
+from .util import now_ms
 from typing import Any, Dict, List, Optional, Tuple
 
 from .util import JsonStore, now_ms
@@ -192,6 +194,41 @@ class PeerRegistry:
                 return p
         return None
 
+    VERIFY_CACHE_TTL_MS = 60_000
+
+    def verify_peer(self, device_id: str, address: str, api_port: int,
+                    timeout: float = 3.0) -> bool:
+        """Probe an address and confirm the answering identity IS the
+        expected peer — used before relaying calls/announcements/clipboard
+        to a companion reached through a possibly-stale address.  Returns
+        False on mismatch or unreachability (honest failure)."""
+        peer = self.get(device_id)
+        if peer is None:
+            return False
+        # short-lived cache: one probe per destination per minute keeps
+        # broadcast fan-out cheap while staying honest about identity
+        key = (device_id, address, int(api_port))
+        hit = getattr(self, "_verify_cache", {}).get(key)
+        if hit and now_ms() - hit < self.VERIFY_CACHE_TTL_MS:
+            return True
+        from .peers import PeerClient
+        client = PeerClient(lambda: "")
+        try:
+            ident = client.identity(f"http://{address}:{api_port}",
+                                    timeout=timeout)
+            if ident.get("device_id") == device_id:
+                self.observe_beacon(ident, address)
+                cache = getattr(self, "_verify_cache", None)
+                if cache is None:
+                    cache = self._verify_cache = {}
+                cache[key] = now_ms()
+                return True
+            return False
+        except Exception:
+            # Unreachable right now — honest False; the caller reports the
+            # delivery as unavailable instead of pretending.
+            return False
+
     def sweep_offline(self, ttl_ms: int = ONLINE_TTL_MS) -> List[Peer]:
         """Return peers whose last beacon is older than the TTL; mark offline."""
         cutoff = now_ms() - ttl_ms
@@ -239,6 +276,12 @@ class PeerClient:
     """Minimal HTTP client for talking to companion instances on the LAN."""
 
     def __init__(self, token_provider=lambda: ""):
+        # v1.4.0 hardening: callers sometimes hand us the token STRING
+        # instead of a provider callable — normalize so a plain string
+        # works (a TypeError here silently turned deliveries "unavailable")
+        if not callable(token_provider):
+            value = token_provider
+            token_provider = lambda: value
         self._token_provider = token_provider
 
     # ------------------------------------------------------------------

@@ -204,11 +204,14 @@ class DiscoveryService:
                 self._note("rx", f"unparseable packet from {addr[0]}",
                            ok=False, address=addr[0])
                 continue
-            # Accept protocol 1 (pre-mobile) and 2+ (mobile) beacons.  v1.3.1
-            # mistakenly required pn==1 while advertising PROTOCOL_VERSION=2,
-            # so every modern beacon was dropped and peers flapped offline.
+            # Accept protocol 1 (pre-mobile) and 2+ (mobile) beacons.
+            # v1.3.1 mistakenly required pn==1 while advertising
+            # PROTOCOL_VERSION=2, so every modern beacon was dropped and
+            # peers flapped offline after the 12 s TTL (fixed in v1.3.2,
+            # carried into v1.4.0).
             pn = packet.get("pn")
-            if packet.get("kind") != "beacon" or not isinstance(pn, int) or pn < 1:
+            if packet.get("kind") != "beacon" or not isinstance(pn, int) \
+                    or pn < 1:
                 self._unknown_senders[addr[0]] = time.monotonic()
                 self._note("rx", f"non-beacon payload from {addr[0]}",
                            ok=False, address=addr[0])
@@ -311,7 +314,7 @@ class DiscoveryService:
         from .util import prefer_lan_address
         for peer in self.registry.all():
             # Probe online peers for latency AND offline manual peers so a
-            # missed UDP beacon window cannot strand them until the 30s
+            # missed UDP beacon window cannot strand them until the 30 s
             # manual loop (chat delivery also retries, but Radar should
             # reflect reachability promptly).
             if not peer.addresses:

@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(__file__, "..", "..", "..")))
 
-from companion.migration import run_migrations, SCHEMA_VERSION  # noqa: E402
+from companion.migration import run_migrations, SCHEMA_VERSION, SCHEMA_VERSION  # noqa: E402
 
 
 def seed_v122(tmp_path, config_extra=None, outbox=None, messages=None):
@@ -31,7 +31,7 @@ def test_migration_backs_up_state_files(tmp_path):
               messages=[{"id": "m1", "conv": "direct:x", "body": "hi"}])
     report = run_migrations(str(tmp_path))
     assert report.from_version == 1
-    assert report.to_version == SCHEMA_VERSION == 2
+    assert report.to_version == SCHEMA_VERSION
     assert "config.json" in report.backed_up
     assert "outbox.json" in report.backed_up
     assert "messages.jsonl" in report.backed_up
@@ -50,7 +50,7 @@ def test_migration_sets_schema_version(tmp_path):
     seed_v122(tmp_path)
     run_migrations(str(tmp_path))
     cfg = json.loads((tmp_path / "config.json").read_text())
-    assert cfg["schema_version"] == 2
+    assert cfg["schema_version"] == SCHEMA_VERSION
 
 
 def test_migration_is_idempotent(tmp_path):
@@ -58,7 +58,7 @@ def test_migration_is_idempotent(tmp_path):
     r1 = run_migrations(str(tmp_path))
     r2 = run_migrations(str(tmp_path))
     assert r1.from_version == 1
-    assert r2.from_version == 2
+    assert r2.from_version == SCHEMA_VERSION
     assert "already current" in r2.steps[0]
     # no new backup created on the second run
     assert r2.backed_up == []

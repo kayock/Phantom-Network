@@ -281,3 +281,87 @@ Small maintenance assignments (suitable for small models):
 5. Docs: keep API_REFERENCE.md in sync with any route change.
 Acceptance for all: tests pass (`python -m pytest`, `node tests/js/*.mjs`),
 no new dependencies, transfer engine untouched.
+
+---
+
+# v1.4.0 maintenance tasks (Phantom Signal)
+
+Each task names allowed files, required tests, acceptance criteria and
+reviewer evidence. High-risk areas (auth, destructive file operations,
+installation) remain OUT of scope for LocalForge — see the exclusions
+at the end.
+
+## Task LF-14 · Voice session lifecycle
+- **Allowed files**: `companion/voice.py`, `tests/unit/test_v140_backends.py`
+  (voice section), `tests/integration/test_v140_signal_e2e.py`.
+- **Contract**: `Call` states ringing → active → ended/missed/rejected;
+  mirrored calls (origin_host set) MUST forward answer/signal/end to the
+  origin and never mutate state locally beyond the mirror; ring watchdog
+  expires at 45 s with a GhostChat record.
+- **Tests**: `pytest tests/unit/test_v140_backends.py -k voice` and
+  `pytest tests/integration/test_v140_signal_e2e.py -k voice`.
+- **Acceptance**: all voice tests pass; no call left in `ringing` after
+  60 s; the mirror forwards produce origin-side state changes.
+- **Evidence**: test output + a diff limited to the allowed files.
+
+## Task LF-15 · Broadcast profiles + schedules
+- **Allowed files**: `companion/broadcast.py`, related unit tests.
+- **Contract**: quiet hours parse "HH:MM-HH:MM" with midnight wrap;
+  schedule times are validated HH:MM; emergency urgency overrides quiet
+  hours ONLY for the sender; participation is never overridden.
+- **Tests**: unit tests `-k broadcast`.
+- **Acceptance**: `in_quiet_hours("22:00-07:00", 23:00) is True`,
+  `(02:00) is True`, `(12:00) is False`; schedule save rejects "25:99".
+- **Evidence**: test output.
+
+## Task LF-16 · Media queue state machine
+- **Allowed files**: `companion/media.py`, related unit tests.
+- **Contract**: repeat-all wraps next AND prev past the ends; volume
+  clamps to 0.8; `reorder` accepts only permutations; unauthorized
+  paths raise 403 via the sandbox guard.
+- **Tests**: unit tests `-k media`.
+- **Acceptance**: all media unit tests green; no state persisted for
+  unauthorized enqueues.
+- **Evidence**: test output.
+
+## Task LF-17 · Mesh diagnostics + recovery
+- **Allowed files**: `companion/mesh.py`, `web/js/views/mesh.js`.
+- **Contract**: exchange-introduced peers expire after 30 min without
+  direct contact; recovery backoff doubles 10→60 s and records last
+  errors; reconciliation deactivates the STALE duplicate (never manual
+  peers). The failover claim path is FLAG-GATED — do not loosen the
+  gate or store raw secrets.
+- **Tests**: unit tests `-k mesh`.
+- **Acceptance**: green mesh tests; `mobile_failover_enabled` defaults
+  false in `config.py` and `migration.py`.
+- **Evidence**: test output + grep evidence that the flag gate is
+  intact.
+
+## Task LF-18 · Mobile UI improvements
+- **Allowed files**: `web/js/mobile/app.js`, `web/mobile.html`,
+  `web/css/mobile.css`.
+- **Contract**: every tab renderer exists in the `VIEWS` map; new SSE
+  event types follow the `handleMobileEvent` dispatch; localStorage
+  identity schema unchanged (client_id/client_secret/name/...).
+- **Tests**: `node --check web/js/mobile/app.js` + the browser sweep
+  (`scripts/browser_test_v140.py` mobile section).
+- **Acceptance**: all 9 mobile surfaces load with zero pageerrors.
+- **Evidence**: sweep output + screenshot diffs.
+
+## Task LF-19 · DSP regression testing
+- **Allowed files**: `tests/unit/test_v140_dsp.py`, `tests/js/`.
+- **Contract**: FEC vectors, ARQ recovery, SNR sweep, honest-failure
+  sims (48k-as-44.1k MUST fail) stay asserted; any dsp.js change
+  requires updating BOTH the mjs suite and the Python harness.
+- **Tests**: `node tests/js/test_v140.mjs` + `pytest
+  tests/unit/test_v140_dsp.py`.
+- **Acceptance**: 100% pass; no assertion weakened to make a failing
+  scenario "pass".
+- **Evidence**: both suite outputs.
+
+## Exclusions (unchanged)
+Authentication/identity (`mobile.py` secret rules, chat delivery ack
+semantics), destructive file operations (`fsops.py` delete/move),
+installation scripts, and the transfer engine's core loop are OUTSIDE
+LocalForge scope. Route-level work touching `auth=False` endpoints
+requires human review.

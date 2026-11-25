@@ -1,2 +1,0 @@
-f374fa632e004b1c4537dac717edecfcb5a9af4f93a870d545973ce652e2265d  Phantom-Network-v1.3.1.zip
-6763e9425e389f9d48fa83d9cb0d2b9f0e6e73c798173dd64e2e656bcccbebc7  phantom-network_1.3.1_all.deb

@@ -26,6 +26,11 @@ from .alerts import AlertEngine
 from .audio import AudioService, PRESETS
 from .automation import AutomationEngine
 from .chat import ChatEngine
+from .voice import VoiceEngine
+from .broadcast import BroadcastEngine
+from .media import MediaEngine
+from .mesh import MeshEngine
+from .clipboard import ClipboardEngine
 from .config import Config, resolve_data_dir
 from .discovery import DiscoveryService
 from .events import EventBus
@@ -95,6 +100,10 @@ class App:
                                self.events, self.sse, self.identity, self.log)
         self.mobile = MobileClientRegistry(self.data_dir, self.config,
                                            self.events, self.sse, self.log)
+        # v1.4.0 — Phantom Voice: WebRTC signaling registry + relay
+        self.voice = VoiceEngine(self.data_dir, self.config, self.registry,
+                                 self.chat, self.identity, self.sse,
+                                 self.events, self.log)
         self.chat.wire_mobile(self.mobile)
         self.automation = AutomationEngine(self.config, self.registry, self.log)
         self.audio = AudioService(self.data_dir, self.config, self.events,
@@ -107,11 +116,32 @@ class App:
         self.alerts = AlertEngine(self.config, self.registry, self.events,
                                   self.chat, self.transfers, self.monitor,
                                   self.sse, self.log)
+        # v1.4.0 — Phantom Broadcast: household announcements
+        self.broadcast = BroadcastEngine(self.data_dir, self.config,
+                                         self.registry, self.chat,
+                                         self.audio, self.identity,
+                                         self.sse, self.events, self.log)
+        # v1.4.0 — Phantom Media: rooms/queues/streaming
+        self.media = MediaEngine(self.data_dir, self.config, self.registry,
+                                 self.sandbox, self.identity, self.sse,
+                                 self.events, self.log)
+
         self.uploads = UploadSessions(self.sandbox,
                                       os.path.join(self.data_dir, "uploads"))
         self.discovery = DiscoveryService(self.config, self.registry,
                                           self.identity, self.api_port,
                                           self.events, self.log)
+        # v1.4.0 — Phantom Clipboard (steer addition): shared clipboard
+        self.clipboard = ClipboardEngine(self.data_dir, self.config,
+                                         self.registry, self.mobile,
+                                         self.identity, self.sse,
+                                         self.events, self.log)
+        # v1.4.0 — Phantom Mesh: resilience + optional failover (needs
+        # the discovery service for probe-based recovery)
+        # v1.4.0 — Phantom Mesh: resilience + optional failover
+        self.mesh = MeshEngine(self.data_dir, self.config, self.registry,
+                               self.discovery, self.mobile, self.identity,
+                               self.sse, self.events, self.log)
         self.server: Optional[PhantomServer] = None
         self._stop_event = threading.Event()
 
@@ -123,6 +153,25 @@ class App:
     # ------------------------------------------------------------------
     # identity / ports
     # ------------------------------------------------------------------
+    @property
+    def tls_port(self) -> int:
+        try:
+            return int(self.config.get("tls_port") or 0) or (self.api_port + 1)
+        except (TypeError, ValueError):
+            return self.api_port + 1
+
+    def _tls_context(self):
+        import ssl as _ssl
+        cert = self.config.get("tls_cert") or ""
+        key = self.config.get("tls_key") or ""
+        if not cert or not key or not (os.path.exists(cert)
+                                       and os.path.exists(key)):
+            raise FileNotFoundError(
+                f"tls_cert ({cert!r}) or tls_key ({key!r}) missing")
+        ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        return ctx
+
     @property
     def api_port(self) -> int:
         try:
@@ -158,6 +207,15 @@ class App:
             "automation": True,
             "alerts": True,
             "tls": self.config.get("tls_enabled", False),
+            "voice": bool(self.config.get("voice_enabled", True)),
+            "screen": bool(self.config.get("screen_enabled", True)),
+            "broadcast": bool(self.config.get("broadcast_enabled", True)),
+            "media": bool(self.config.get("media_enabled", True)),
+            "failover": bool(self.config.get("mobile_failover_enabled",
+                                             False)),
+            "clipboard": bool(self.config.get("clipboard_enabled", True)),
+            "clipboard_auto": bool(self.config.get(
+                "clipboard_auto_enabled", False)),
         }
         return ident
 
@@ -178,22 +236,31 @@ class App:
                              f"Cannot bind API port {port}: {exc}",
                              severity="error")
             return 2
-        # v1.3.0 optional TLS: HTTPS for secure-context features (mic,
-        # PWA install on iOS).  OFF by default; never self-configured.
+        # v1.3.0 optional TLS; v1.4.0 adds optional SIMULTANEOUS HTTP+HTTPS:
+        # tls_dual (default true) keeps ordinary HTTP messaging/file sharing
+        # on api_port while a second listener serves HTTPS on tls_port
+        # (secure context for microphone, WebRTC, PWA on phones).  Nothing
+        # is self-configured and no trust store is touched, ever.
+        self.tls_server = None
         if self.config.get("tls_enabled"):
             try:
-                import ssl as _ssl
-                cert = self.config.get("tls_cert") or ""
-                key = self.config.get("tls_key") or ""
-                if not cert or not key or not (os.path.exists(cert)
-                                               and os.path.exists(key)):
-                    raise FileNotFoundError(
-                        f"tls_cert ({cert!r}) or tls_key ({key!r}) missing")
-                ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
-                ctx.load_cert_chain(cert, key)
-                self.server.socket = ctx.wrap_socket(self.server.socket,
-                                                     server_side=True)
-                self.log.info("TLS enabled on port %d (cert: %s)", port, cert)
+                ctx = self._tls_context()
+                if self.config.get("tls_dual", True):
+                    tls_port = self.tls_port
+                    self.tls_server = PhantomServer(("0.0.0.0", tls_port),
+                                                    self)
+                    self.tls_server.socket = ctx.wrap_socket(
+                        self.tls_server.socket, server_side=True)
+                    threading.Thread(
+                        target=self.tls_server.serve_forever,
+                        kwargs={"poll_interval": 0.5}, name="pn-https",
+                        daemon=True).start()
+                    self.log.info("dual serving: HTTP :%d + HTTPS :%d",
+                                  port, tls_port)
+                else:
+                    self.server.socket = ctx.wrap_socket(self.server.socket,
+                                                         server_side=True)
+                    self.log.info("TLS-only on port %d", port)
             except Exception as exc:
                 self.log.error("TLS setup failed (%s) — continuing on HTTP",
                                exc)
@@ -1072,6 +1139,154 @@ class App:
         return json_response({"ok": True,
                               "unread": self.chat.mobile_unread(
                                   cid, body.get("read_marks") or {})})
+
+    # ------------------------------------------------------------------
+    # Phantom Voice (v1.4.0)
+    # ------------------------------------------------------------------
+    def voice_call(self, req) -> dict:
+        body = req.json() or {}
+        who = self._voice_who(body)
+        body["origin"] = who
+        return self.voice.call(body)
+
+    def voice_answer(self, req) -> dict:
+        body = req.json() or {}
+        who = self._voice_who(body)
+        return self.voice.answer(str(body.get("call_id") or ""),
+                                 bool(body.get("accept")), who)
+
+    def voice_signal(self, req) -> dict:
+        body = req.json() or {}
+        who = self._voice_who(body)
+        return self.voice.signal(str(body.get("call_id") or ""), who,
+                                 str(body.get("kind") or ""),
+                                 body.get("payload"))
+
+    def voice_end(self, req) -> dict:
+        body = req.json() or {}
+        who = self._voice_who(body)
+        return self.voice.end(str(body.get("call_id") or ""), who,
+                              str(body.get("reason") or "hangup"))
+
+    def voice_room_join(self, req) -> dict:
+        body = req.json() or {}
+        return self.voice.room_join(body, self._voice_who(body))
+
+    def voice_room_leave(self, req) -> dict:
+        body = req.json() or {}
+        return self.voice.room_leave(body, self._voice_who(body))
+
+    def voice_relay(self, req) -> dict:
+        return self.voice.relay(req.json() or {})
+
+    def tls_status(self) -> dict:
+        """Honest HTTPS readiness report: what is serving, where, and what
+        needs manual trust.  No trust store is ever touched."""
+        enabled = bool(self.config.get("tls_enabled"))
+        dual = bool(self.config.get("tls_dual", True))
+        cert = self.config.get("tls_cert") or ""
+        info = {"ok": True, "enabled": enabled, "dual": dual,
+                "http_port": self.api_port,
+                "https_port": self.tls_port if enabled else None,
+                "cert_path": cert or None,
+                "cert_expiry": None, "subject": None, "sans": [],
+                "cert_available": bool(cert and os.path.exists(cert)),
+                "secure_features": ["microphone", "WebRTC voice",
+                                    "screen share", "PWA install (iOS)"],
+                "notes": []}
+        if enabled and info["cert_available"]:
+            import subprocess as _sp
+            try:
+                r = _sp.run(["openssl", "x509", "-in", cert, "-noout",
+                             "-enddate", "-subject", "-ext",
+                             "subjectAltName"],
+                            capture_output=True, text=True, timeout=5)
+                for line in (r.stdout or "").splitlines():
+                    line = line.strip()
+                    if line.startswith("notAfter="):
+                        info["cert_expiry"] = line.split("=", 1)[1]
+                    elif line.startswith("subject="):
+                        info["subject"] = line.split("=", 1)[1]
+                    elif line.startswith("DNS:") or line.startswith("IP:"):
+                        info["sans"].extend(
+                            x.strip() for x in line.split(",") if x.strip())
+                info["notes"].append(
+                    "HTTP stays available for ordinary messaging and file "
+                    "sharing; HTTPS adds the secure context phones need "
+                    "for the microphone.")
+                info["notes"].append(
+                    "Trust the certificate manually on each device (iOS: "
+                    "download at /api/tls/cert, install profile, then "
+                    "enable full trust). This companion never edits your "
+                    "trust store.")
+            except FileNotFoundError:
+                info["notes"].append("openssl not available — install it "
+                                     "to see certificate details")
+            except Exception as exc:
+                info["notes"].append(f"certificate inspection failed: {exc}")
+        elif enabled:
+            info["notes"].append("TLS enabled but the certificate file is "
+                                 "missing — HTTPS is NOT serving")
+        else:
+            info["notes"].append(
+                "HTTPS is off (default). Generate a LAN certificate with "
+                "scripts/gen-lan-cert.sh, set tls_cert/tls_key, and set "
+                "tls_enabled=true — see HTTPS_SETUP.md.")
+        return info
+
+    def tls_cert_download(self) -> Response:
+        cert = self.config.get("tls_cert") or ""
+        if not cert or not os.path.exists(cert):
+            raise FsError(404, "no_cert", "No certificate configured")
+        with open(cert, "rb") as fh:
+            data = fh.read()
+        resp = Response(200, data)
+        resp.headers["Content-Disposition"] = \
+            'attachment; filename="phantom-lan-cert.pem"'
+        resp.content_type = "application/x-pem-file"
+        return resp
+
+    def clipboard_settings(self, body: dict) -> dict:
+        """Participation controls: pause, private mode, auto-sync,
+        retention, size caps.  Auto-sync can be enabled here only by an
+        explicit user action (UI toggle)."""
+        allowed = {"clipboard_paused": bool,
+                   "clipboard_private_mode": bool,
+                   "clipboard_auto_enabled": bool,
+                   "clipboard_participating": bool,
+                   "clipboard_retention_days": int,
+                   "clipboard_max_bytes": int,
+                   "clipboard_max_image_bytes": int}
+        for k, cast in allowed.items():
+            if k in body:
+                self.config.set(k, cast(body[k]))
+        return {"ok": True, "status": self.clipboard.status()}
+
+    def media_stream(self, req) -> Response:
+        """Range-capable authorized-file streaming with proper media
+        content types (audio/video playback + seeking in browsers)."""
+        from .media import mime_for
+        fh, size, name = _open_download_guarded(self.sandbox,
+                                                req.q("path"))
+        mime = mime_for(name) or "application/octet-stream"
+        return file_response(fh, size, mime, filename=name,
+                             range_header=req.headers.get("Range", ""))
+
+    def _voice_who(self, body: dict) -> dict:
+        """Caller identity: a hosted phone (authenticated client) or this
+        companion's desktop user."""
+        cid = str(body.get("client_id") or "")
+        if cid:
+            c = self.mobile.get(cid)
+            if c is not None:
+                me = self.identity()
+                return {"client_id": cid, "device_id": cid,
+                        "name": c.name or cid,
+                        "kind": "mobile",
+                        "host_device_id": me["device_id"]}
+        me = self.identity()
+        return {"device_id": me["device_id"], "name": me["name"],
+                "kind": "computer"}
 
     def mobile_stream(self, req) -> Response:
         """Dedicated SSE stream filtered to one mobile client's events."""

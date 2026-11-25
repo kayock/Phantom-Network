@@ -15,7 +15,7 @@
      a dead stream as "reconnecting" and shows honest last-known data.
    ============================================================ */
 
-const PN_SW_VERSION = 'v1.3.1-p2';
+const PN_SW_VERSION = 'v1.4.0.1';
 const SHELL_CACHE = `pn-shell-${PN_SW_VERSION}`;
 const ASSET_CACHE = `pn-assets-${PN_SW_VERSION}`;
 
@@ -34,6 +34,14 @@ const PRECACHE = [
   '/js/api.js',
   '/js/state.js',
   '/js/ui.js',
+  '/js/views/voice.js',
+  '/js/views/broadcast.js',
+  '/js/views/media.js',
+  '/js/views/clipboard.js',
+  '/js/views/mesh.js',
+  '/js/views/signal.js',
+  '/js/views/settings.js',
+  '/js/lib/rtc.js',
 ];
 
 self.addEventListener('install', (event) => {

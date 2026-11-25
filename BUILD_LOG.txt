@@ -1,44 +1,17 @@
-PHANTOM NETWORK v1.3.0 — BUILD LOG
-==================================
-Built: 2026-11-25 (development sandbox, Linux x86_64, Python 3.12)
-
-Baseline:      v1.2.2 @ ac2e72a (public release tree)
-Version bump:  companion/__init__.py 1.2.2 → 1.3.0, PROTOCOL_VERSION 2
-New backend:   companion/mobile.py, companion/alerts.py,
-               companion/automation.py, companion/migration.py
-Modified:      app.py (mobile/alerts/automation wiring, TLS option, identity
-               kind+capabilities+mobile_clients), chat.py (GhostChat 2.0
-               rewrite, ChatFileStore), discovery.py (diagnostics ring
-               buffer, peer exchange), monitor.py (mounts classification,
-               GPU info, CPU topology), peers.py (kind/mobile_clients/
-               capabilities slots), routes.py (+30 routes), config.py
-               (v1.3.0 defaults), httpd.py untouched, transfers.py and
-               hashprep.py BYTE-IDENTICAL to v1.2.2 (verified via git diff).
-New frontend:  web/mobile.html, web/css/mobile.css, web/js/mobile/app.js,
-               web/manifest.webmanifest, web/sw.js, web/offline.html,
-               web/js/lib/qrcode.js (vendored, MIT, Kazuhiko Arase),
-               web/assets/icon-*.png + favicon.png (generated from the
-               brand geometry).
-Modified UI:   index.html (PWA hooks + mobile redirect), app.js (palette,
-               SW registration, alert cues, media party scheduler),
-               api.js (+30 client methods, SSE topics), chat.js (2.0),
-               radar.js, fleet.js, settings.js (QR + alerts + automation),
-               diagnostics.js (discovery panel), signal.js (waterfall +
-               advanced morse + modem), audio.js (Media Party),
-               intercom.js (device pickers), commander.js (ext filter),
-               theme.css (+chat2.0/palette styles).
-Tests:         tests/unit/test_v130_mobile.py (10),
-               tests/unit/test_v130_alerts.py (8),
-               tests/unit/test_v130_migration.py (6),
-               tests/unit/test_v130_monitor.py (6),
-               tests/integration/test_v130_mobile_e2e.py (14),
-               tests/js/test_v130.mjs (16 checks),
-               tests/conftest.py (wait_job_done now waits through the
-               asynchronous "hashing" phase — strengthens assertions).
-Icons:         scripts/gen_icons.py (PIL, brand geometry).
-Windows CI:    .github/workflows/build-windows.yml — NOT executed here
-               (no Windows runner in the development environment).
-Screenshots:   see docs/screenshots/ — v1.2.2 desktop captures included;
-               v1.3.0 live-capture of the mobile UI is listed as pending
-               physical verification in TEST_REPORT.md.
-Archive:       dist/Phantom-Network-v1.3.0.zip (see SHA256SUMS-v1.3.0.txt)
+Phantom Network v1.4.0 — build log
+=====================================
+Date: 2026-11-25T18:55:54Z
+Baseline: v1.3.1 tree (c4e1c4b dev line) + published v1.3.2 corrections (78ea0f4) integrated
+New modules: companion/{voice,broadcast,media,mesh,clipboard}.py, web/js/lib/rtc.js
+Views added: voice, broadcast, media, clipboard, mesh (+signal waterfall/modem implemented)
+Mobile: voice/media/clip tabs, identity restore, secure-context diagnostics
+Migration: schema 3 (backed up; flags only)
+Tests at build time:
+  - unit: 161 passed, 1 skipped (platform-conditional)
+  - integration: 11 passed (real companion subprocesses)
+  - shipped JS: 14 passed (tests/js/test_v140.mjs)
+  - JS syntax: 27/27 modules clean (node --check)
+  - browser: 26/26 surfaces, 0 genuine console errors (Playwright Chromium)
+  - screenshots: 27 genuine v1.4.0 captures (docs/screenshots/v140-*)
+Known gaps (honest): no physical Windows/iPhone execution in this
+environment; physical verification delegated to CURSOR_DEPLOYMENT_HANDOFF.md.
