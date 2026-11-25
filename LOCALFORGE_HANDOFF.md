@@ -226,3 +226,26 @@ integration battery, and a written rationale referencing invariants §5/§6.
 6. Never bump `__version__` (release engineering owns it), never edit
    `theme.css` identity tokens (`--violet`, `--bg0`…), never touch
    `packaging/` installers without the safety checklist in §6.
+
+
+## Development source (Station)
+
+- Development tree: `/home/kayock/Projects/Phantom-Network`
+- Installed application (do not edit for LocalForge work): `/home/kayock/.local/opt/phantom-network`
+- Runtime config: `~/.config/phantom-network`
+- Runtime logs: `~/.local/state/phantom-network`
+
+### Test commands
+
+```bash
+cd /home/kayock/Projects/Phantom-Network
+python3 -m venv .venv && .venv/bin/pip install -q pytest pytest-timeout
+.venv/bin/python -m pytest tests/unit -q
+node tests/js/test_dsp.mjs
+.venv/bin/python -m pytest tests/integration -q
+.venv/bin/python -m pytest -q
+```
+
+Future LocalForge changes must pass these against the development tree before
+any copy into the installed application directory.
+
