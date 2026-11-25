@@ -33,6 +33,20 @@ false interrupt; PeerClient default timeout unchanged; prepare jobs join;
 cancel works; changed sources fail prepare; verified deletion still refuses
 stale cache; Transfer Center exposes hashing status.
 
+### v1.2.2 focused cold-checksum physical regression
+
+Evidence: `~/phantom-network-lab/cold-checksum-qualify-v122.json`.
+
+- Disposable **8 GiB** pull Station → Portable `phantom-1tb-transfers`.
+- Companion hash cache intentionally cold (no `/api/fs/hash` pre-warm).
+- Visible prepare status `source_checksum` / job status `hashing`.
+- Cold checksum duration **42.3 s** (exceeds the old 30 s peer timeout).
+- Transfer completed; independent SHA-256 match.
+- Wall throughput ≈ **8.1 MiB/s**; peak RSS ≈ 41 MB Station / ≈ 42 MB Portable.
+- Disposable artifacts cleaned; original 50 GB v1.2.1 evidence preserved.
+
+This run is distinct from the warmed 50 GB qualification above.
+
 ## v1.2.0 results (2026-11-25)
 
 Final battery: `python -m pytest tests/unit tests/integration -q` — counts
