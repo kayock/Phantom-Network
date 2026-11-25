@@ -5,8 +5,11 @@ import { el, toast, errText } from '../ui.js';
 import { audioCtx, playTone } from '../lib/sfx.js';
 import {
   textToMorse, morseToText, playMorse, morseTimeline,
+  morseTimelineFarnsworth, playMorseAdvanced, randomPracticeMessage,
   encodeAcoustic, acousticDuration, playAcoustic, decodeAcoustic,
   offlineRoundtrip, peakFrequency, goertzel,
+  MODEM_RATES, modemPackets, modemDuration, playModem, modemOfflineRoundtrip,
+  rmsLevel, peakAmplitude, signalDurationS,
 } from '../lib/dsp.js';
 
 export async function render(container) {
@@ -26,11 +29,13 @@ export async function render(container) {
     body.innerHTML = '';
     tabbar.innerHTML = '';
     for (const [id, label] of [['tone', '∿ Tone generator'], ['spectrum', '... Spectrum analyzer'],
-                               ['morse', '·−· Morse lab'], ['acoustic', '📡 Acoustic messaging']]) {
+                               ['waterfall', '🌊 Waterfall'], ['morse', '·−· Morse lab'],
+                               ['acoustic', '📡 Acoustic messaging'], ['modem', '🔌 Acoustic modem']]) {
       tabbar.appendChild(el('div', { class: 'tab' + (activeTab === id ? ' active' : ''),
         onclick: () => setTab(id) }, label));
     }
-    ({ tone: tabTone, spectrum: tabSpectrum, morse: tabMorse, acoustic: tabAcoustic })[name]();
+    ({ tone: tabTone, spectrum: tabSpectrum, waterfall: tabWaterfall, morse: tabMorse,
+       acoustic: tabAcoustic, modem: tabModem })[name]();
   }
 
   /* ================= 1 · tone generator ================= */
@@ -182,15 +187,20 @@ export async function render(container) {
     input.value = 'PHANTOM NETWORK ONLINE';
     const output = el('div', { class: 'log-view', style: { minHeight: '30px' } }, '');
     const wpm = el('input', { type: 'number', value: '12', min: '5', max: '35', style: { width: '70px' } });
+    const fwpm = el('input', { type: 'number', value: '0', min: '0', max: '35', style: { width: '70px' },
+      title: 'Farnsworth spacing (0 = off): characters keep speed, gaps stretch' });
     const freq = el('input', { type: 'number', value: '700', style: { width: '80px' } });
     const timeline = el('canvas', { class: 'scope', style: { height: '70px' } });
+    const practiceOut = el('div', { class: 'vu', style: { fontSize: '14px' } }, 'practice idle');
 
     input.addEventListener('input', () => { output.textContent = textToMorse(input.value); paintTimeline(); });
     const unit = () => 1.2 / Number(wpm.value);   // PARIS standard: dot = 1.2s/wpm
+    const farns = () => { const f = Number(fwpm.value) || 0; return f > 0 && f < Number(wpm.value) ? f : null; };
 
     function paintTimeline() {
       const m = textToMorse(input.value);
-      const tl = morseTimeline(m, unit());
+      const tl = farns() ? morseTimelineFarnsworth(m, { wpm: Number(wpm.value), fwpm: farns() })
+                         : morseTimeline(m, unit());
       const rect = timeline.getBoundingClientRect();
       timeline.width = rect.width; timeline.height = rect.height;
       const ctx = timeline.getContext('2d');
@@ -205,8 +215,34 @@ export async function render(container) {
 
     const play = () => {
       const m = textToMorse(input.value);
-      playMorse(m, { unit: unit(), freq: Number(freq.value), volume: 0.55, playFn: playTone });
+      if (farns()) {
+        playMorseAdvanced(m, { wpm: Number(wpm.value), fwpm: farns(),
+                               freq: Number(freq.value), volume: 0.55, playFn: playTone });
+      } else {
+        playMorse(m, { unit: unit(), freq: Number(freq.value), volume: 0.55, playFn: playTone });
+      }
     };
+
+    /* practice mode: random original words, reveal on demand */
+    let practiceWord = '';
+    const newPractice = () => {
+      practiceWord = randomPracticeMessage(1, Date.now());
+      const m = textToMorse(practiceWord);
+      if (farns()) {
+        playMorseAdvanced(m, { wpm: Number(wpm.value), fwpm: farns(),
+                               freq: Number(freq.value), volume: 0.55, playFn: playTone });
+      } else {
+        playMorse(m, { unit: unit(), freq: Number(freq.value), volume: 0.55, playFn: playTone });
+      }
+      practiceOut.textContent = 'listen… (decode test below / reveal on demand)';
+    };
+    const revealPractice = () => practiceOut.textContent =
+      practiceWord ? `the word was: ${practiceWord}` : 'no active practice word';
+
+    body.appendChild(el('div', { class: 'fld-row' },
+      el('button', { class: 'btn cyan', onclick: newPractice }, '🎓 Practice: play random word'),
+      el('button', { class: 'btn', onclick: revealPractice }, 'Reveal'),
+      practiceOut));
 
     // decode (typed)
     const morseIn = el('textarea', { style: { width: '100%', minHeight: '50px' }, placeholder: '.--. .... .- -. - --- -- / -. . - .-- --- .-. -.-' });
@@ -269,6 +305,7 @@ export async function render(container) {
       input, output,
       el('div', { class: 'row mt' },
         el('label', { class: 'fld' }, 'Speed (WPM)', wpm),
+      el('label', { class: 'fld' }, 'Farnsworth WPM (0=off)', fwpm),
         el('label', { class: 'fld' }, 'Tone (Hz)', freq),
         el('button', { class: 'btn primary', onclick: play }, '▶ Play morse'),
         el('span', { class: 'dim small' }, 'dot = 1.2 s / WPM (PARIS standard)')),

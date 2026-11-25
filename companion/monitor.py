@@ -275,6 +275,194 @@ class Monitor:
                     pass
         return out
 
+    # v1.3.0 mount classification ----------------------------------------
+    VIRTUAL_FSTYPES = {"squashfs", "tmpfs", "devtmpfs", "proc", "sysfs",
+                       "devpts", "cgroup", "cgroup2", "overlay", "mqueue",
+                       "hugetlbfs", "bpf", "tracefs", "fusectl",
+                       "fuse.gvfsd-fuse", "efivarfs", "binfmt_misc", "pstore",
+                       "securityfs", "debugfs", "configfs", "autofs",
+                       "fuse.snapfuse", "ramfs", "cramfs"}
+
+    def _mount_meta(self, mount: str) -> dict:
+        """(fstype, device, read_only) for one mountpoint, honestly."""
+        if _HAS_PSUTIL:
+            for p in psutil.disk_partitions(all=True):
+                if p.mountpoint == mount:
+                    ro = "ro" in (p.opts or "").split(",")
+                    return {"fstype": p.fstype, "device": p.device,
+                            "read_only": ro, "opts": p.opts or ""}
+        if os.path.exists("/proc/mounts"):
+            try:
+                with open("/proc/mounts", "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        parts_ = line.split()
+                        if len(parts_) >= 4 and parts_[1] == mount:
+                            ro = "ro" in parts_[3].split(",")
+                            return {"fstype": parts_[2], "device": parts_[0],
+                                    "read_only": ro, "opts": parts_[3]}
+            except OSError:
+                pass
+        return {"fstype": "", "device": "", "read_only": False, "opts": ""}
+
+    def _classify_mount(self, meta: dict, mount: str) -> dict:
+        fstype = (meta.get("fstype") or "").lower()
+        device = meta.get("device") or ""
+        kind = "physical"
+        if not device or device.startswith(("proc", "sysfs", "devtmpfs",
+                                            "tmpfs", "cgroup", "overlay")) \
+                or fstype in self.VIRTUAL_FSTYPES:
+            kind = "virtual"
+        elif device.startswith("/dev/loop") or fstype == "squashfs" \
+                or mount.startswith("/snap"):
+            kind = "snap"
+        elif fstype.startswith("nfs") or fstype == "cifs" or fstype == "smb2":
+            kind = "network"
+        elif device.startswith("/dev/"):
+            kind = "physical"
+        else:
+            kind = "virtual"
+        removable = False
+        if kind == "physical" and os.path.isdir("/sys/block"):
+            base = device.rsplit("/", 1)[-1]
+            base = base.rstrip("0123456789") if base[:2] in ("sd", "hd",
+                                                             "vd") else \
+                (base.rsplit("p", 1)[0] if "nvme" in base else base)
+            for cand in ({base, base + "0", base.split("p")[0]} if
+                         base.startswith("nvme") else {base}):
+                try:
+                    with open(f"/sys/block/{cand}/removable") as fh:
+                        if fh.read().strip() == "1":
+                            removable = True
+                            break
+                except OSError:
+                    continue
+        if os.name == "nt" and len(mount) >= 2 and mount[1] == ":":
+            try:
+                ct = 0
+                import ctypes
+                ct = ctypes.windll.kernel32.GetDriveTypeW(mount[:2] + "\\")
+                if ct == 2:
+                    kind, removable = "external", True
+                elif ct == 4:
+                    kind = "network"
+                elif ct == 5:
+                    kind = "optical"
+            except Exception:
+                pass
+        return {"kind": kind, "removable": removable,
+                "fstype": fstype, "device": device,
+                "read_only": bool(meta.get("read_only"))}
+
+    def mounts(self, view: str = "useful") -> List[dict]:
+        """Classified storage view: physical | useful | all (v1.3.0).
+
+        ``useful`` (default) hides Snap loops and virtual mounts; ``physical``
+        keeps only real block devices; ``all`` preserves complete diagnostics.
+        Nothing is deleted from the data — only the default display filters.
+        """
+        everything = self._disks()
+        out = []
+        hidden = [p for p in (self.config.get("storage_hidden_prefixes") or [])]
+        for d in everything:
+            meta = self._mount_meta(d["mount"])
+            d.update(self._classify_mount(meta, d["mount"]))
+            d["hidden_by_config"] = any(
+                d["mount"].startswith(p) for p in hidden if p)
+            out.append(d)
+        if view == "all":
+            return out
+        if view == "physical":
+            return [d for d in out if d["kind"] == "physical"]
+        # useful (default): physical + external + network, minus snap/virtual
+        return [d for d in out
+                if d["kind"] in ("physical", "network") and
+                not d["mount"].startswith("/snap") and
+                not d["hidden_by_config"]]
+
+    def gpu_info(self) -> dict:
+        """GPU info across vendors — honest about what is unavailable.
+
+        NVIDIA via nvidia-smi (values); Intel/AMD via sysfs drm identity
+        (name/driver only — utilization is NOT fabricated without tools).
+        """
+        gpus = []
+        nv = self._gpu()
+        if nv and nv.get("gpus"):
+            for g in nv["gpus"]:
+                g["vendor"] = "NVIDIA"
+                g["util_available"] = True
+            gpus.extend(nv["gpus"])
+        if os.path.isdir("/sys/class/drm"):
+            for card in sorted(os.listdir("/sys/class/drm")):
+                if not card.startswith("card") or "@" in card:
+                    continue
+                base = f"/sys/class/drm/{card}/device"
+                try:
+                    with open(f"{base}/vendor") as fh:
+                        vendor_id = fh.read().strip()
+                except OSError:
+                    continue
+                vendor = {"0x8086": "Intel", "0x1002": "AMD"}.get(vendor_id)
+                if not vendor:
+                    continue
+                name = ""
+                for cand in ("product_name", "product"):
+                    try:
+                        with open(f"{base}/{cand}", "r",
+                                  encoding="utf-8", errors="replace") as fh:
+                            name = fh.read().strip()
+                            if name:
+                                break
+                    except OSError:
+                        continue
+                driver = ""
+                try:
+                    driver = os.path.basename(os.readlink(f"{base}/driver"))
+                except OSError:
+                    pass
+                if not name:
+                    name = f"{vendor} graphics ({card})"
+                gpus.append({"index": len(gpus), "vendor": vendor,
+                             "name": name, "driver": driver,
+                             "util_percent": None, "mem_used_mb": None,
+                             "mem_total_mb": None, "temp_c": None,
+                             "util_available": False})
+        return {"gpus": gpus}
+
+    def cpu_topology(self) -> dict:
+        """Physical vs logical cores where the OS exposes both."""
+        logical = os.cpu_count()
+        physical = None
+        if _HAS_PSUTIL:
+            try:
+                physical = psutil.cpu_count(logical=False) or None
+            except Exception:
+                physical = None
+        if physical is None and os.path.exists("/proc/cpuinfo"):
+            cores = set()
+            try:
+                with open("/proc/cpuinfo", "r", encoding="utf-8") as fh:
+                    cur = {}
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            if ("physical id" in cur) and ("core id" in cur):
+                                cores.add((cur["physical id"], cur["core id"]))
+                            cur = {}
+                            continue
+                        if ":" in line:
+                            k, v = line.split(":", 1)
+                            if k.strip() in ("physical id", "core id"):
+                                cur[k.strip()] = v.strip()
+                    if ("physical id" in cur) and ("core id" in cur):
+                        cores.add((cur["physical id"], cur["core id"]))
+                physical = len(cores) or None
+            except OSError:
+                physical = None
+        if physical is None and os.name == "nt":
+            physical = logical       # Windows: honest fallback, same count
+        return {"logical": logical, "physical": physical}
+
     def _network(self) -> dict:
         now = time.monotonic()
         cur = self._read_net_counters()
@@ -379,5 +567,8 @@ class Monitor:
             "interfaces": self._interfaces(),
             "uptime_s": self._uptime_s(),
             "gpu": self._gpu(),
+            "gpu_info": self.gpu_info(),
+            "cpu_topology": self.cpu_topology(),
+            "storage_view": (self.config.get("storage_view") or "useful"),
             "process": self._process(),
         }

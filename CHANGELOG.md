@@ -1,268 +1,141 @@
-# CHANGELOG.md
+# Changelog
 
-All notable changes to PHANTOM NETWORK.
+## [1.3.1] — Mobile Stabilization
 
-## [1.2.2] — 2026-11-25
-
-Large-file checksum reliability after the physical 50 GB LAN qualification.
-
-### Fixed
-
-* **Cold source SHA-256 timeout.** Destination pulls called
-  `/api/fs/hash` with a single 30-second peer timeout. Cold hashing of a
-  50 GB file exceeded that window, so after three retries the job became
-  `interrupted` with `size=0`. Source checksum preparation is now a
-  joinable background job (`POST/GET /api/fs/hash/prepare`) polled with
-  short HTTP timeouts. Ordinary PeerClient defaults remain 10 seconds.
-  Transfer Center shows **Calculating source checksum** with measured
-  progress when available. Failed preparation reports `hash_failed`
-  instead of a misleading zero-byte transfer. Verified deletion still
-  re-hashes and never trusts the cache for destructive removal.
-
-### Physical evidence preserved
-
-* v1.2.1 LAN qualification through 50 GB (after manual hash-cache warm)
-  remains documented in `TEST_REPORT.md` and
-  `~/phantom-network-lab/large-file-qualify-v121.json`.
-
-## [1.2.1] — 2026-11-25
-
-Physical-deployment corrections after the Z.ai v1.2.0 archive. Ubuntu
-Station and Ubuntu Portable are the qualified platforms for this release.
-Windows remains unverified.
+### Security
+- **Mobile identity protection**: re-attaching an existing client id now
+  requires its secret (HTTP 401 without, 403 on mismatch); the secret is
+  disclosed exactly once, only at new registration; `_authenticate` fails
+  closed for empty/absent secrets on every mobile endpoint
+  (heartbeat, inbox, send, ack, mutate, stream, prefs). Regression suite:
+  `tests/unit/test_v131_identity.py` (10 tests) + HTTP-level takeover
+  refusal in the e2e suite.
 
 ### Fixed
+- Mobile interface boot failure: a syntax error (stray parenthesis) in
+  v1.3.0's `web/js/mobile/app.js` prevented the entire mobile app from
+  parsing — phones got a blank page. Found by v1.3.1 browser automation.
+- Host→phone message pushes carried the sender-side copy (`outgoing: true`,
+  un-rekeyed conversation): phones saw their host's messages as their own
+  outgoing mail under the wrong conversation. Recipient-copy semantics now
+  match the cross-host path.
+- `peer_probe` probed the LOCAL api port on the peer's address first —
+  same-host multi-companion setups falsely matched "this device" and
+  custom-port peers never refreshed their identity (hosted mobile clients
+  stayed invisible to deterministic discovery).
+- Automation run history self-reported failure: `_record` logged a
+  nonexistent key (`KeyError('last_result')` caught and recorded as the
+  run error) — every v1.3.0 automation run failed internally.
+- Receipt routing no longer depends on the cached online flag (stale TTL
+  dropped delivery/read receipts on quiet networks); queued mobile
+  messages retry on probes, not only on beacons.
+- Same-host phone→phone conversations are rekeyed identically to the
+  cross-host path; JS test runner bug (await in non-async) fixed;
+  schema_version now visible immediately after first-run migration.
 
-* **Ubuntu installer runtime ownership.** `install-ubuntu.sh` resolved
-  `$HOME` and `XDG_*` before identifying the desktop user, so a sudo
-  install baked `/root` paths into the launcher. The installer now
-  resolves the invoking user (`SUDO_USER`, `PKEXEC_UID`, then `logname`)
-  and that user's home first, ignores XDG values that are not inside that
-  home, and writes a launcher whose config and log paths expand when the
-  desktop user starts the companion. The Debian package launcher no longer
-  writes `companion.out` into `/opt`.
-* **Read-only shares inside a writable ancestor.** Share authorization
-  used the first matching root. A read-write parent therefore authorized
-  deletion of a file inside a more specific read-only share, including
-  verified deletion. Authorization now uses the longest matching share
-  and prefers the read-only mode when two roots are the same length.
-  A verified move whose source cannot be removed stays `completed_partial`
-  and keeps the source. Fresh-checksum verification is unchanged.
-* **Fleet Monitor view.** The view passed an unresolved history request
-  to `appendChild` and never attached its panels, so the page reported
-  "View failed to load". History is awaited, and the device selector,
-  note and panels are attached to the view.
+### Tests & verification
+- 19/19 mobile e2e integration tests (all 13 comms flows, deterministic —
+  no UDP dependence), 10 identity unit tests, installer regression split
+  into an honest env-gated skip + a deterministic variant, 17-check JS
+  suite, focused transfer-engine regression (2 known sandbox-timing
+  failures, identical on pristine v1.2.2).
+- Browser automation: 13 fresh v1.3.1 screenshots (desktop + mobile
+  390×844 + offline shell); service worker update path verified live.
 
-## [1.2.0] — 2026-11-25
+### Preserved
+- Transfer engine byte-identical to the physically verified v1.2.2.
+- No new authentication, pairing or access gates; QR registration flow
+  unchanged and verified in-browser.
 
-Final engineering hardening & deployment readiness.
+## [1.3.0] — PHANTOM MOBILE
 
-### Fixed — confirmed defects from the independent v1.1.0 inspection
+### Independent mobile clients (Priority A)
+- `companion/mobile.py` — browser clients register as independent logical
+  participants (`kind: "mobile"`) hosted by a companion: persistent identity
+  (`mob_*` id + browser-stored secret), name/type/icon, heartbeat presence
+  with honest offline marking, per-client persistent inbox
+  (`mobile_inbox_<id>.jsonl`), notification prefs. No phone runs a server.
+- QR + manual registration: Settings → **Add Mobile Device** renders a QR
+  (vendored MIT `qrcode-generator`, generated locally, no external service)
+  pointing at the mobile interface `/m`. No pairing codes or tokens added;
+  the QR carries no secrets. Duplicate-identity handling, rename, remove,
+  recovery (fresh identity) are explicit UI actions.
+- Dedicated mobile interface `web/mobile.html` + `web/css/mobile.css` +
+  `web/js/mobile/app.js`: bottom navigation (Home / Chat / Devices / Files /
+  More), large touch targets, onboarding, chat with attachments and voice
+  notes, device fleet with presence, file send into authorized shares with
+  chunked resumable-style uploads, camera capture hint, portrait+landscape.
+- GhostChat 2.0: `to_kind: "mobile"` routing through hosts, delivery is
+  honest (**delivered only after the phone acknowledges**), replies,
+  reactions, message editing, deletion with tombstones, duplicate-message
+  prevention (idempotent `/api/chat/incoming`), offline queueing incl.
+  unknown-host queueing with prompt retry on fleet updates, read receipts
+  computer↔phone and phone↔phone across hosts.
+- Chat file store (`data_dir/chat_files`, capped by
+  `mobile_max_attachment_mb`): chunked upload sessions, SHA-256, streamed
+  download with Range support; voice messages via MediaRecorder (60 s cap).
 
-* **Windows installer path corruption**: `install-windows.ps1` contained
-  embedded vertical-tab (0x0b) and carriage-return (0x0d) bytes from a
-  Python escape accident in the v1.1.0 edit (`"\v"` → VT, `"\r"` → CR).
-  All three Windows scripts rewritten with `Join-Path` construction; a new
-  byte-level validator (`packaging/validate_release.py`) now blocks control
-  characters, non-UTF-8 and missing deliverables from ever shipping again.
-* **Windows uninstaller logic was inverted**: `-KeepData` DELETED the data
-  and default kept it. New semantics: default keeps runtime data
-  (`%APPDATA%\PhantomNetwork`), `-RemoveData` deletes it explicitly.
-* **Ubuntu launcher wrote logs into the root-owned program dir**
-  (`/opt/phantom-network/companion.out`): ordinary users could not launch
-  Phantom Network. Logs now go to `~/.local/state/phantom-network/`
-  (XDG), state to `~/.config/phantom-network/`; the launcher writes
-  NOTHING into the program dir (verified against a read-only program dir).
-* **Remote LAN clients could change local configuration** (shares,
-  read/write modes, remote-audio toggle, settings) undermining the
-  first-run wizard's selections. Administrative endpoints (`/api/config`,
-  `/api/fs/share`, `/api/fs/unshare`, `/api/audio/enabled`) now accept
-  changes only from the local machine (`admin_local_only`, default ON,
-  documented escape hatch). Peer operations are unaffected. Implemented
-  with the existing architecture; **no new mandatory authentication**.
-* **Verified deletion could serve a cached checksum** (data-preservation
-  risk): destructive deletion now ALWAYS re-hashes the current content
-  (cache bypassed), captures file identity `(st_dev, st_ino, size,
-  mtime_ns)` before hashing and re-checks it immediately before unlink,
-  refuses symbolic links, and drops the cache entry afterwards. Regression
-  tests prove a stale cache + preserved size/mtime cannot authorize
-  deleting modified or replaced data.
+### PWA (Priority A)
+- `web/manifest.webmanifest`, service worker `web/sw.js` (shell cache
+  versioned `pn-shell-v1.3.0-p1`, **`/api/**` never cached**, offline shell
+  `offline.html`), original-brand PNG icons (192/512 + maskable) generated
+  from the logo geometry, app shortcuts, update detection with reload toast.
 
-### Added
+### Discovery (Priority A/B)
+- Discovery diagnostics ring buffer + `GET /api/discovery/diagnostics`
+  (interfaces, beacon targets, rx/tx, last RX, manual peers, unknown
+  senders, per-event log) with a Diagnostics panel in the UI.
+- Peer exchange: companions share known-peer lists (`POST
+  /api/peers/exchange`) — every forwarded record is validated by a real
+  probe before it enters the registry.
 
-* Windows destination-name validation: reserved device names (CON, AUX,
-  COM1-9…), invalid characters, trailing dots/spaces, 255-char component
-  limit → explicit `invalid_dest_name` failure, never silent rename/skip.
-* `CURSOR_DEPLOYMENT_HANDOFF.md`: staged A–F physical deployment procedure
-  (Ubuntu Station, Ubuntu Portable, Windows 11, audio/mobile, large models,
-  GitHub prep).
-* Release validation integrated into `packaging/make-dist.sh`.
-* Companion lifecycle + large-transfer qualification suites (concurrent
-  2×1.2 GiB transfers, cancellation with `.part` retention, long-filename
-  transfers, restart-then-resume source-change detection, real-data window
-  beyond 2^32, port-conflict behaviour, 5× start/stop thread/RSS stability).
-* Debian package build verified with `dpkg-deb` (shipped under `dist/`).
+### Fleet / monitoring (Priority B)
+- Fleet Monitor "All Devices" overview; storage views `useful` (default,
+  hides Snap/virtual) / `physical` / `all` with read-only + removable
+  badges (`GET /api/storage`); Intel/AMD GPU identity via sysfs drm plus
+  NVIDIA via nvidia-smi — **unavailable telemetry is reported, never
+  fabricated**; physical vs logical CPU cores.
+- Monitoring alerts engine (`companion/alerts.py`): 8 rule types,
+  threshold + hold duration + cooldown + duplicate suppression, delivery
+  via Event Center, 🔔 System Alerts chat conversation and optional sound
+  cue. Nothing enabled by default.
+- Network Radar: capability badges (shares/chat/audio/intercom/hosts
+  phones/telemetry), mobile-client nodes with distinct rendering, search +
+  computer/mobile filters, honest quick actions.
 
-## [1.1.0] — 2026-11-25
+### Automation (Priority C)
+- Watched folders + scheduled one-way copy jobs (`companion/automation.py`)
+  executed through the **existing verified transfer engine**; additive only
+  (never mirrors deletions, never prunes backups), preview, run-now,
+  pause/resume, per-run history. Settings → Watched folders & scheduled jobs.
 
-Reliability, File Commander & cross-platform refinement release.
+### Interface (Priority C/B)
+- Command palette (Ctrl/Cmd+K): views, devices, conversations, commands.
+- Media Party: fleet-wide scheduled playback via SSE with per-browser
+  clock-offset scheduling (honest ±0.1–0.3 s, not sample-accurate), stop-all.
+- Signal Lab 2.0: waterfall spectrogram (range/history/pause/markers/peaks),
+  advanced Morse (WPM + Farnsworth per ARRL, timeline, practice mode),
+  packetized acoustic modem (sync/seq/total/len/CRC-16 framing, three data
+  rates, retry of missing packets, offline roundtrip tests), RMS/peak/
+  duration analysis tools. Intercom input/output device selection. File
+  Commander extension filter. Audio Command Media Party + stop.
 
-### Fixed — the five v1.0.0 integration failures (root causes)
+### Platform
+- Optional TLS (`tls_enabled`, `tls_cert`, `tls_key`) for secure-context
+  features; off by default, never self-configured (see HTTPS_SETUP.md).
+- Windows build CI workflow (`.github/workflows/build-windows.yml`) —
+  delivered, awaiting execution on a real runner. Optional tray companion
+  script `tools/tray_phantom.py` (pystray optional).
+- Backward-compatible upgrade: versioned data migration with automatic
+  backup to `migrations/`, `schema_version` marker, forward-compatible
+  stores, protocol 2 identity payload with v1 peers still supported.
 
-1. **Broadcast/group chat tests** — test-side defect: unencoded spaces in
-   history query URLs (`http.client.InvalidURL`); queries now URL-encoded
-   and the test client is hardened. No server defect.
-2. **Event export test** — test-side defect: `.decode()` on an
-   already-parsed dict after the client gained JSON parsing.
-3. **Auth token test** — app-side defect: `POST /api/config` enabled
-   `require_token` without generating a token → every request (including
-   the token-holder's) was refused. `config_set` now generates a token.
-4. **Reconnection test** — app-side defect: offline-TTL sweep ran only
-   every 30 s, so a fast re-register was treated as "refresh" and produced
-   no `device_connected` event. Sweep now runs every 5 s (latency probes
-   stay at 30 s).
-5. **"Chat receiver hang"** — was a cascade of the above test defects plus
-   the v1.0.0 pause/resume worker race (fixed earlier); with corrected
-   tests and per-companion stderr capture the full suite is green and the
-   receiver stays responsive.
+### Preserved
+- The v1.2.2 transfer engine is **byte-identical** (`git diff` empty for
+  `transfers.py` and `hashprep.py`): destination-pull, streaming, async
+  checksum preparation, source identity checks, pause/resume, persistent
+  state, SHA-256 verification, verified deletion, conflict resolution.
 
-### Fixed — independently identified defects
-
-* **A. Default filesystem exposure**: fresh installs share NOTHING
-  (`share_home_rw` now False, `setup_complete` flag). First-run wizard in
-  the UI authorizes directories/drives explicitly with read-only /
-  read-write choices. Existing configured installs are unaffected.
-* **C. Installer pip isolation**: Ubuntu installer builds an app-owned
-  venv for optional psutil (PEP 668-compatible); pure-stdlib fallback.
-* **D. Unsafe ownership changes**: removed the recursive `chown` of
-  `~/.local`; only files the installer itself creates are adjusted.
-* **E. Autostart unit**: corrected `ExecStart`/`WorkingDirectory`
-  construction, proper venv python path, `PYTHONUNBUFFERED`, on-failure
-  restart; still strictly opt-in.
-* **F. Missing packaging files**: added `packaging/companion.spec`
-  (Windows PyInstaller) and `packaging/make-deb.sh` (Debian/Ubuntu .deb).
-* **G. Directory truncation**: `/api/fs/walk` is now paginated
-  (`skip`/`limit`/`next_offset`); directory pulls fetch every page; trees
-  beyond `max_dir_files` (default 200 000) are REFUSED (`tree_too_large`)
-  instead of silently truncated.
-* **H. Sync by size only**: comparison strategies `size` / `mtime` /
-  `hash` (verified SHA-256 preview with a 400-file cap; hash failures copy
-  + verify rather than skip).
-
-### Added — reliability
-
-* Source-identity binding: resume refuses changed sources
-  (size/mtime_ns mismatch → clear error, `.part` retained, retry path).
-* Retry works from history: terminal jobs can be re-enqueued cleanly
-  (previously `retry` on a failed job silently did nothing).
-* Transfer-state persistence is throttled and excludes in-memory walk
-  manifests (directory jobs no longer quadratic; re-enumeration on restart
-  is deterministic).
-* `completed_partial` transfer state: verified copy + retained source
-  reported honestly with both copies' locations (never plain "completed").
-* `verified_delete` confirms the source is unchanged via the (size,
-  mtime_ns) identity before deleting — no blind re-read of huge files.
-* Diagnostics Center: expanded checks with fix hints, common-problem guide,
-  exportable local diagnostic report (`/api/diagnostics/report`).
-* Peer capability flags (audio/intercom/shares count) advertised in the
-  identity payload and shown in the UI (radar hints, audio gating).
-* Per-companion stderr capture in the test harness for diagnosability.
-
-### Performance (measured)
-
-* 2.6 GiB real cross-companion transfer with pause at >2^31 offset, resume,
-  SHA-256 equality re-verified independently; companion RSS stayed
-  < 250 MB during the transfer (bounded, size-independent).
-* >4 GiB Range boundary probe on a sparse file (206 + exact Content-Range).
-
-## [1.0.0] — 2026-11-25
-
-First public release.
-
-### Added — companion (backend)
-
-* Threaded HTTP/1.1 companion service with JSON API, SSE event stream and
-  permissive CORS for cross-device browser use (`httpd.py`, `routes.py`).
-* UDP discovery: 3 s broadcast/multicast beacons (port 8414), persistent
-  peer registry with custom names/icons/groups, offline TTL detection,
-  latency + uptime probes, manual registration (with honest
-  non-participating reporting and self-probe refusal), opt-in /24 TCP sweep
-  on the API port only (`discovery.py`, `peers.py`).
-* Filesystem service with a hard security sandbox: shares (rw/ro),
-  realpath containment, traversal + symlink-escape refusal, drive/mount
-  listing, breadcrumbs-friendly listing, hidden-file toggle, bounded
-  search, text/image/binary preview, zip download, chunked upload sessions
-  with conflict handling (`fsops.py`).
-* Transfer engine: destination-pull jobs, 1 MiB streaming with live SHA-256,
-  `.part` resume, pause/resume/cancel/retry, automatic retry with backoff,
-  token-bucket bandwidth limiting, disk-space pre-check, four conflict
-  modes, directory pulls with per-file checkpoints, verified moves
-  (copy → verify → source-side re-check → delete), job persistence across
-  restarts (`transfers.py`).
-* GhostChat: direct/group/broadcast messaging between companions, delivery
-  + read receipts, offline outbox with auto-redelivery, searchable
-  JSONL history, attachment references backed by the transfer engine
-  (`chat.py`).
-* Audio Command: original synthesized presets (8), tone generator with
-  safety caps, platform player chain (PowerShell SoundPlayer / paplay /
-  aplay / ffplay), visible enable/disable per device, stop control
-  (`audio.py`).
-* Phantom Intercom: opt-in PTT PCM relay (16 kHz Int16, ~60 ms chunks)
-  companion-to-companion with SSE delivery; no recording, no covert capture
-  (`intercom.py`).
-* Fleet Monitor: CPU/RAM/swap/disks/network/interfaces/uptime telemetry via
-  psutil → /proc → Windows ctypes → honest `null`s, 20-minute history
-  buffer, nvidia-smi GPU probe, companion self-usage reporting
-  (`monitor.py`).
-* Event Center: typed event bus with JSONL persistence (5 000-entry ring),
-  live SSE fanout, filtering/search/export (`events.py`).
-* Configuration: platform data dir + portable marker mode, change
-  listeners, public view without secrets, optional shared-token auth
-  (`config.py`).
-* Diagnostics: quick + full self-tests (config, HTTP, loopback call,
-  discovery socket, audio player, hashing, shares, transfer engine, chat
-  store, telemetry).
-
-### Added — command center (frontend)
-
-* Obsidian/graphite/violet/cyan themed SPA (no build step) served by every
-  companion; responsive to 375 px viewports.
-* Twelve views: Command Center, Network Radar (animated canvas map +
-  device actions), File Commander (dual-pane, cross-device, drag & drop,
-  favorites, roots/shares selector, search), Transfer Center (six-state
-  tabs, live progress, bandwidth control, sync preview/apply, report
-  export), GhostChat (conversations, receipts, attachments, search),
-  Audio Command (target selection, tone gen, presets, file playback),
-  Intercom (session picker, hold-to-talk PTT, secure-context guidance),
-  Signal Lab (tone generator, spectrum analyzer with mic/file input,
-  Morse lab with mic decoding, FSK acoustic messaging with CRC + confidence,
-  offline roundtrip demo), Fleet Monitor, Events, Settings, Diagnostics.
-* Browser-side DSP library (`lib/dsp.js`): Morse codec, Goertzel, FSK
-  acoustic codec — verified by a node test suite.
-* Browser-side preset synth (`lib/sfx.js`).
-* Original branding: hexagonal node-network logo (SVG), boot animation.
-
-### Added — packaging & docs
-
-* Installers (Ubuntu `.sh`, Windows `.ps1`), uninstallers, portable
-  distribution scripts, desktop launchers, `make-dist.sh` release pipeline
-  with clean-extract re-verification, optional Windows PyInstaller spec,
-  optional `.deb` builder.
-* Full documentation set (README, ARCHITECTURE, API_REFERENCE,
-  DEVELOPER_GUIDE, DEPLOYMENT, FILE_TRANSFER_PROTOCOL,
-  HARDWARE_COMPATIBILITY, BUILD, CHANGELOG, TEST_REPORT, BUILD_LOG,
-  KNOWN_LIMITATIONS, DEVELOPMENT_BACKLOG, LICENSE).
-* Test suite: 27 unit tests, 11 node DSP tests, 24 real-network integration
-  tests (real companion subprocesses incl. interruption/resume/corruption
-  scenarios).
-
-### Fixed during hardening (found by the test suite)
-
-* Same-second hash-cache staleness (`mtime` → `mtime_ns` keying).
-* Token-bucket over-issuing budget across sleeps.
-* Unnamed regex groups breaking `/{id}` routes (jobs/peers/uploads/groups).
-* Rename-conflict finalizing at the original path instead of `(1)` copies.
-* `PeerClient` receiving a token string instead of a callable.
-* Manual registration probing the default port only + self-registration.
-* Missing `uptime_s` in `/api/identity`.
-* Missing auth-token generation when `require_token` is enabled at runtime.
+## v1.2.2
+- Asynchronous checksum preparation (cold-cache 8 GiB qualification).
+- See git history for v1.2.x.

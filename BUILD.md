@@ -1,6 +1,6 @@
 # BUILD.md
 
-Building, packaging and verifying PHANTOM NETWORK v1.2.2 from source.
+Building, packaging and verifying PHANTOM NETWORK v1.3.0 from source.
 
 ## 1. Prerequisites
 
@@ -43,7 +43,7 @@ bash packaging/make-dist.sh
 The script:
 
 1. runs a quick source audit (version strings, no leftover dev files),
-2. builds `Phantom-Network-v1.2.2.zip` with reproducible timestamps
+2. builds `Phantom-Network-v1.3.0.zip` with reproducible timestamps
    (`SOURCE_DATE_EPOCH` if set),
 3. **extracts the ZIP into a clean directory** and re-runs the test suite
    against the shipped source,
@@ -79,3 +79,16 @@ curl -s http://127.0.0.1:18999/api/health        # {"ok": true, "version": "1.0.
 curl -s http://127.0.0.1:18999/ | head -3        # the UI shell
 kill %1
 ```
+
+
+---
+
+# v1.3.0 build notes
+
+- No new runtime dependencies (pure stdlib backend; vendored QR JS in
+  `web/js/lib/qrcode.js`, MIT).
+- Generate PWA icons: `python scripts/gen_icons.py` (PIL, dev-only).
+- Windows build: `.github/workflows/build-windows.yml` (delivered, awaits a
+  real runner; uses packaging/companion.spec with PyInstaller).
+- Version consistency checks in `packaging/validate_release.py` now expect
+  1.3.0 (see packaging/make-dist.sh).

@@ -103,6 +103,29 @@ export const api = {
   chatGroups: () => request('', 'GET', '/api/config').then(() => request('', 'GET', '/api/chat/history?limit=1')),
   createGroup: (name, members) => request('', 'POST', '/api/chat/groups', { name, members }),
   deleteGroup: (id) => request('', 'DELETE', `/api/chat/groups/${id}`),
+  /* GhostChat 2.0 */
+  chatReact: (msgId, emoji) => request('', 'POST', '/api/chat/react', { msg_id: msgId, emoji }),
+  chatEdit: (msgId, body) => request('', 'POST', '/api/chat/edit', { msg_id: msgId, body }),
+  chatDelete: (msgId) => request('', 'POST', '/api/chat/delete', { msg_id: msgId }),
+  chatFileSession: (name, size, mime) => request('', 'POST', '/api/chat/file/session', { name, size, mime }),
+  chatFileFinish: (sid, sha256 = '') => request('', 'POST', `/api/chat/file/${sid}/finish`, { sha256 }),
+
+  /* v1.3.0: mobile clients, discovery diagnostics, alerts, automation, storage, media party */
+  mobileClients: () => request('', 'GET', '/api/mobile/clients'),
+  mobileRename: (id, patch) => request('', 'POST', `/api/mobile/clients/${id}/rename`, patch),
+  mobileRemove: (id) => request('', 'POST', `/api/mobile/clients/${id}/remove`, {}),
+  discoveryDiagnostics: () => request('', 'GET', '/api/discovery/diagnostics'),
+  alerts: () => request('', 'GET', '/api/alerts'),
+  alertSet: (rule) => request('', 'POST', '/api/alerts', { rule }),
+  alertDelete: (id) => request('', 'DELETE', `/api/alerts/${id}`),
+  automation: () => request('', 'GET', '/api/automation'),
+  automationSet: (job) => request('', 'POST', '/api/automation', { job }),
+  automationDelete: (id) => request('', 'DELETE', `/api/automation/${id}`),
+  automationControl: (id, action) => request('', 'POST', `/api/automation/${id}/control`, { action }),
+  automationPreview: (spec) => request('', 'POST', '/api/automation/preview', spec),
+  storage: (view) => request('', 'GET', '/api/storage' + (view ? `?view=${view}` : '')),
+  mediaParty: (d, spec) => request(d ?? '', 'POST', '/api/media/party', spec),
+  mediaPartyStop: (d) => request(d ?? '', 'POST', '/api/media/party/stop', {}),
 
   intercomSessions: () => request('', 'GET', '/api/intercom/sessions'),
   intercomStart: (participants, label) => request('', 'POST', '/api/intercom/session', { participants, label }),
@@ -179,7 +202,8 @@ class LiveStream {
       this.onstatus.forEach(f => f('down'));
       // EventSource auto-reconnects; nothing else to do
     };
-    for (const topic of ['event', 'chat', 'transfer', 'intercom', 'presence']) {
+    for (const topic of ['event', 'chat', 'transfer', 'intercom', 'presence',
+                         'mobile', 'alert', 'media_party']) {
       es.addEventListener(topic, (ev) => {
         let data = null;
         try { data = JSON.parse(ev.data); } catch { data = null; }

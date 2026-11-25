@@ -27,6 +27,7 @@ import struct
 import threading
 import time
 import urllib.error
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
 
@@ -36,6 +37,8 @@ from .util import local_ipv4s, now_ms
 BEACON_INTERVAL_S = 3.0
 SWEEP_TIMEOUT_S = 0.35
 SWEEP_WORKERS = 96
+PEER_EXCHANGE_INTERVAL_S = 60
+DIAG_LOG_CAP = 240
 
 
 class DiscoveryService:
@@ -56,6 +59,15 @@ class DiscoveryService:
         self._sweep_running = threading.Event()
         self._last_sweep_result: Dict = {}
         self._sock: Optional[socket.socket] = None
+        # v1.3.0 diagnostics: ring buffer of beacon tx/rx observations so the
+        # UI can show exactly what discovery saw, per interface, over time
+        self._diag: deque = deque(maxlen=DIAG_LOG_CAP)
+        self._last_rx = 0.0
+        self._last_rx_addr = ""
+        self._unknown_senders: Dict[str, float] = {}
+        # optional callback (wired by App): fired when a beacon introduces
+        # newly hosted mobile clients so queued messages retry promptly
+        self.on_clients_changed = None
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -77,6 +89,13 @@ class DiscoveryService:
                               daemon=True)
         t4.start()
         self._threads.append(t4)
+        # v1.3.0: companions exchange known-peer lists to heal fleets on
+        # networks where broadcast discovery is unreliable (e.g. the Windows
+        # peer-registry gap seen in the physical deployment)
+        t5 = threading.Thread(target=self._peer_exchange_loop,
+                              name="pn-disc-exchange", daemon=True)
+        t5.start()
+        self._threads.append(t5)
 
     def stop(self) -> None:
         self._stop.set()
@@ -94,6 +113,42 @@ class DiscoveryService:
             "sweep_running": self._sweep_running.is_set(),
             "last_sweep": self._last_sweep_result,
             "api_port": self.api_port,
+        }
+
+    def _note(self, direction: str, detail: str, ok: bool = True,
+              address: str = "") -> None:
+        self._diag.append({"ts": now_ms(), "dir": direction,
+                           "detail": detail[:200], "ok": ok,
+                           "address": address})
+
+    def diagnostics(self) -> dict:
+        """Full discovery diagnostics for the UI / support reports."""
+        ifaces = [{"address": a, "broadcast": b} for a, b in
+                  ((n["addr"], n.get("broadcast")) for n in self._local_networks())]
+        sock_state = "open" if self._sock is not None else \
+            ("disabled" if not self.config.get("discovery_enabled", True)
+             else "failed to bind")
+        return {
+            "enabled": self.config.get("discovery_enabled", True),
+            "socket": sock_state,
+            "interfaces": ifaces,
+            "beacon_targets": self._beacon_targets() if self._sock or True else [],
+            "rx_packets": self._rx,
+            "tx_packets": self._tx,
+            "last_rx_ms": int(self._last_rx * 1000) if self._last_rx else None,
+            "last_rx_address": self._last_rx_addr,
+            "last_beacon_ms": int(self._last_beacon * 1000)
+                              if self._last_beacon else None,
+            "manual_peers": list(self.config.get("manual_peers") or []),
+            "unknown_senders": sorted(
+                ({"address": a, "last_ms": int(t * 1000)}
+                 for a, t in self._unknown_senders.items()),
+                key=lambda d: -d["last_ms"])[:10],
+            "peer_exchange_enabled":
+                bool(self.config.get("peer_exchange_enabled", True)),
+            "log": list(self._diag)[-120:],
+            "log_note": "Ring buffer of the last discovery observations "
+                        "(beacon transmissions, receptions, errors).",
         }
 
     # ------------------------------------------------------------------
@@ -141,15 +196,30 @@ class DiscoveryService:
             except OSError:
                 break
             self._rx += 1
+            self._last_rx = time.monotonic()
+            self._last_rx_addr = addr[0]
             try:
                 packet = json.loads(data.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
+                self._note("rx", f"unparseable packet from {addr[0]}",
+                           ok=False, address=addr[0])
                 continue
             if packet.get("pn") != 1 or packet.get("kind") != "beacon":
+                self._unknown_senders[addr[0]] = time.monotonic()
+                self._note("rx", f"non-beacon payload from {addr[0]}",
+                           ok=False, address=addr[0])
                 continue
             if packet.get("device_id") == self.identity_provider().get("device_id"):
                 continue                      # our own beacon echoed back
             peer, transition = self.registry.observe_beacon(packet, addr[0])
+            self._note("rx", f"beacon from {peer.display_name()} "
+                             f"({addr[0]}:{peer.api_port})",
+                       address=addr[0])
+            if packet.get("mobile_clients") and self.on_clients_changed:
+                try:
+                    self.on_clients_changed()
+                except Exception:
+                    pass
             if self.events and transition in ("new", "reconnected"):
                 verb = "New device discovered" if transition == "new" \
                     else "Device reconnected"
@@ -195,12 +265,16 @@ class DiscoveryService:
                 except (TypeError, ValueError):
                     payload = None
                 if payload:
+                    sent = 0
                     for target in self._beacon_targets():
                         try:
                             self._sock.sendto(payload, (target, DEFAULT_DISCOVERY_PORT))
                             self._tx += 1
-                        except OSError:
-                            pass
+                            sent += 1
+                        except OSError as exc:
+                            self._note("tx", f"beacon to {target} failed: {exc}",
+                                       ok=False, address=target)
+                    self._note("tx", f"beacon sent to {sent} target(s)")
                 self._last_beacon = time.monotonic()
             self._stop.wait(BEACON_INTERVAL_S)
 
@@ -407,6 +481,69 @@ class DiscoveryService:
         except Exception:
             pass
         return None
+
+    # ------------------------------------------------------------------
+    # peer exchange (v1.3.0): fleet visibility without trusting gossip
+    # ------------------------------------------------------------------
+    def _peer_exchange_loop(self) -> None:
+        from .peers import PeerClient, PeerUnreachable
+        client = PeerClient(self._token_provider)
+        while not self._stop.wait(PEER_EXCHANGE_INTERVAL_S):
+            if not self.config.get("peer_exchange_enabled", True):
+                continue
+            me = self.identity_provider().get("device_id")
+            known = []
+            for peer in self.registry.all():
+                if peer.device_id == me:
+                    continue
+                known.append({
+                    "device_id": peer.device_id, "name": peer.name,
+                    "addresses": list(peer.addresses)[:3],
+                    "api_port": peer.api_port, "version": peer.version,
+                    "os": peer.os, "participating": peer.participating,
+                })
+            if not known:
+                continue
+            for peer in self.registry.all():
+                if peer.device_id == me or peer.status != "online" \
+                        or not peer.addresses:
+                    continue
+                try:
+                    client.request("POST",
+                                   f"http://{peer.addresses[0]}:{peer.api_port}"
+                                   f"/api/peers/exchange",
+                                   body={"peers": known}, timeout=8)
+                except (PeerUnreachable, Exception):
+                    continue
+
+    def receive_exchange(self, records: list, sender_address: str) -> dict:
+        """Handle a peer-exchange payload: probe before trusting.
+
+        Forwarded records are NEVER displayed as peers on their own — each
+        one must answer a real /api/identity probe first, so stale or
+        fabricated entries cannot poison the registry.
+        """
+        added, probed = [], 0
+        for rec in (records or [])[:20]:
+            if not isinstance(rec, dict):
+                continue
+            device_id = rec.get("device_id") or ""
+            if not device_id or device_id == self.identity_provider().get("device_id"):
+                continue
+            if self.registry.get(device_id) is not None:
+                continue                      # already known
+            for address in (rec.get("addresses") or [])[:2]:
+                probed += 1
+                result = self._probe_one(address)
+                if result.get("ok") and result.get("device_id") == device_id:
+                    peer = self.registry.get(device_id)
+                    added.append(device_id)
+                    self._note("exchange",
+                               f"peer-exchange validated {peer.display_name()} "
+                               f"via {sender_address}", address=address)
+                    break
+        return {"ok": True, "received": len(records or []), "probed": probed,
+                "added": added}
 
     def reverse_dns(self, host: str) -> str:
         try:

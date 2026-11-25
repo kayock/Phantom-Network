@@ -31,7 +31,8 @@ class Peer:
                  "addresses", "api_port", "version", "os", "os_full", "host",
                  "first_seen", "last_seen", "manual", "participating",
                  "status", "latency_ms", "uptime_s",
-                 "audio_enabled", "intercom_enabled", "shares_count")
+                 "audio_enabled", "intercom_enabled", "shares_count",
+                 "kind", "mobile_clients", "capabilities")
 
     def __init__(self, device_id: str):
         self.device_id = device_id
@@ -55,6 +56,9 @@ class Peer:
         self.audio_enabled = None       # None = unknown (v1.0.0 peer)
         self.intercom_enabled = None
         self.shares_count = None
+        self.kind = "computer"          # v1.3.0: computer | mobile host
+        self.mobile_clients = []        # hosted mobile clients (v1.3.0)
+        self.capabilities = {}
 
     def display_name(self) -> str:
         return self.custom_name or self.name or self.host or self.device_id[:12]
@@ -73,6 +77,9 @@ class Peer:
             "audio_enabled": self.audio_enabled,
             "intercom_enabled": self.intercom_enabled,
             "shares_count": self.shares_count,
+            "kind": self.kind,
+            "mobile_clients": list(self.mobile_clients or []),
+            "capabilities": dict(self.capabilities or {}),
         }
 
     def to_public(self) -> dict:
@@ -154,6 +161,15 @@ class PeerRegistry:
             p.audio_enabled = identity.get("audio_enabled", p.audio_enabled)
             p.intercom_enabled = identity.get("intercom_enabled", p.intercom_enabled)
             p.shares_count = identity.get("shares_count", p.shares_count)
+            # v1.3.0 identity payload: kind, hosted mobile clients,
+            # explicit capability map (older peers default silently)
+            p.kind = identity.get("kind") or p.kind or "computer"
+            mc = identity.get("mobile_clients")
+            if isinstance(mc, list):
+                p.mobile_clients = mc
+            caps = identity.get("capabilities")
+            if isinstance(caps, dict):
+                p.capabilities = caps
             if address not in p.addresses:
                 p.addresses = ([address] + p.addresses)[:8]
             p.last_seen = now_ms()

@@ -108,13 +108,13 @@ matters.
     other browsers still work directly against their own companions.
 
 
-## v1.2.2 additions
+## v1.3.0 additions
 
 * **Source checksum preparation can take minutes on huge files.** Transfer
   Center shows progress when the backend measures it. Destination
   verification still requires a full read of the received bytes.
 * **v1.2.1 cold-hash workaround is obsolete.** Do not manually call
-  `/api/fs/hash` before large pulls; v1.2.2 prepare/poll handles long hashes.
+  `/api/fs/hash` before large pulls; v1.3.0 prepare/poll handles long hashes.
 
 ## v1.2.0 additions
 
@@ -131,3 +131,63 @@ matters.
 * **Port conflict**: a second companion on a busy port exits with
   "Address already in use" (verified); the health-poll launcher pattern
   means installers must check process liveness, not just the endpoint.
+
+
+---
+
+# v1.30 additions to known limitations
+
+## Mobile clients
+- Delivery/presence requires the phone's browser tab to be alive. Locked
+  phones, killed browsers and iOS background suspension cannot receive
+  pushes without external platform push infrastructure — deliberately not
+  implemented (stays local). Queued messages arrive on next sync.
+- A phone depends on its host companion being reachable (documented host
+  dependency). No host-side failover.
+- Voice-message codec is browser-dependent (webm/opus or mp4/aac); playback
+  compatibility varies across browsers/OS.
+
+## PWA
+- iOS: Add-to-Home-Screen works but background notifications and mic
+  access require HTTPS with a trusted certificate; behavior must be
+  verified on real devices (never claimed as verified here).
+- The offline shell shows no fabricated fleet state; only static assets
+  are cached, never `/api/**`.
+
+## Media Party / signals
+- Media Party synchronization uses per-browser clock offsets: expect
+  ±0.1–0.3 s drift across browsers — NOT sample-accurate.
+- Acoustic modem: room-scale reliability is unverified; physical
+  speaker/microphone testing is pending. No ultrasonic (covert) mode.
+- Waterfall/spectrogram performance depends on the device; on low-end
+  phones reduce the FFT size or history.
+
+## Environment-specific (development sandbox)
+- The 2-vCPU CI sandbox shows multi-second async-checksum ("hashing")
+  stalls on multi-thousand-file directory pulls; an A/B against pristine
+  v1.2.2 shows IDENTICAL timing, i.e. environment characteristic, not a
+  v1.3.0 regression. Real deployments (the 8 GiB physical qualification)
+  are unaffected.
+- Live-capture v1.3.0 UI screenshots are pending; the shipped
+  `docs/screenshots/` are the v1.2.2 desktop captures (clearly labeled).
+
+
+---
+
+# v1.3.1 status
+
+Fixed in v1.3.1 (moved out of limitations): mobile UI boot failure (v1.3.0
+syntax error), recipient-copy semantics for host→phone pushes, peer probe
+on custom ports, automation history self-failure, stale-peer receipt
+routing. Unchanged limitations: browser background execution bounds for
+phones (no push without platform infrastructure), host dependency of a
+phone's fleet access, Media Party ±0.1–0.3 s drift, acoustic modem room
+reliability unverified, iOS PWA/mic behavior pending real-device tests,
+automation executes only what authorized shares allow.
+
+Environment note (development sandbox, not a product limitation): the
+2-vCPU CI sandbox shows timing-sensitive failures in three large-fixture
+integration tests (async "hashing"-phase polls); an A/B against a pristine
+v1.2.2 worktree shows the identical behavior. Real deployments are
+unaffected; the transfer engine is byte-identical to the physically
+verified v1.2.2.

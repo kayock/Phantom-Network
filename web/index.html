@@ -2,10 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PHANTOM NETWORK — LAN Command Center</title>
 <meta name="color-scheme" content="dark">
+<meta name="description" content="Phantom Network — local LAN command center. Files, messaging, audio and monitoring for your private network. No cloud.">
+<meta name="theme-color" content="#0a0c14">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Phantom">
 <link rel="stylesheet" href="/css/theme.css">
 </head>
 <body>
@@ -26,7 +34,7 @@
       <img src="/assets/logo.svg" alt="" class="brand-logo">
       <div class="brand-text">
         <div class="brand-name">PHANTOM</div>
-        <div class="brand-sub">NETWORK v1.2.2</div>
+        <div class="brand-sub">NETWORK v1.3.1</div>
       </div>
     </div>
     <nav class="nav" id="nav">
@@ -65,11 +73,30 @@
   </div>
 </div>
 
+<!-- command palette -->
+<div class="modal-layer hidden" id="palette-layer"><div class="palette-card" id="palette-card"></div></div>
+
 <!-- modal + toast layers -->
 <div class="modal-layer hidden" id="modal-layer"><div class="modal-card" id="modal-card"></div></div>
 <div class="toast-layer" id="toast-layer"></div>
 <div class="ctx-layer hidden" id="ctx-layer"></div>
 
+<script>
+/* Phones and tablets get the dedicated mobile interface (/m).
+   Desktop users can force either side; choice persists. */
+(function () {
+  try {
+    var override = localStorage.getItem('pn_ui_override');   // 'mobile'|'desktop'
+    var narrow = Math.min(screen.width, window.innerWidth) < 700
+      || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    var touch = 'ontouchstart' in window && narrow;
+    if (narrow && touch && override !== 'desktop'
+        && location.pathname.indexOf('/m') !== 0) {
+      location.replace('/m' + (location.hash || ''));
+    }
+  } catch (e) { /* never block the desktop UI on storage errors */ }
+})();
+</script>
 <script src="/js/app.js" type="module"></script>
 </body>
 </html>

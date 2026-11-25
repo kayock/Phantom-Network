@@ -27,7 +27,7 @@ import zipfile
 import hashlib
 from pathlib import Path
 
-VERSION = "1.2.2"
+VERSION = "1.3.1"
 
 REQUIRED = [
     "companion/__init__.py", "companion/app.py", "companion/transfers.py",

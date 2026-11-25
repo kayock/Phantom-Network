@@ -21,6 +21,40 @@ export async function render(container) {
     el('h3', {}, 'Recent companion events (error/warn)'),
     el('div', { class: 'log-view', id: 'err-log', style: { maxHeight: '220px' } }, ''));
 
+  /* ---------- discovery diagnostics (v1.3.0) ---------- */
+  const discPanel = el('div', { class: 'panel' },
+    el('div', { class: 'spread' },
+      el('h3', {}, 'Discovery diagnostics'),
+      el('button', { class: 'btn small cyan', onclick: drawDiscovery }, '↻ Refresh')),
+    el('div', { id: 'disc-diag' }, el('div', { class: 'dim small' }, 'loading…')));
+
+  async function drawDiscovery() {
+    const box = document.getElementById('disc-diag');
+    try {
+      const d = await api.discoveryDiagnostics();
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'kv' },
+        kv('Socket', d.socket),
+        kv('Packets', `rx ${d.rx_packets} · tx ${d.tx_packets}`),
+        kv('Last beacon sent', d.last_beacon_ms ? new Date(d.last_beacon_ms).toLocaleTimeString() : '—'),
+        kv('Last beacon received', d.last_rx_ms ? `${new Date(d.last_rx_ms).toLocaleTimeString()} from ${d.last_rx_address || '?'}` : 'none yet'),
+        kv('Interfaces', (d.interfaces || []).map(i => `${i.address} (bcast ${i.broadcast || '?'})`).join(' · ') || '—'),
+        kv('Beacon targets', (d.beacon_targets || []).join(' · ') || '—'),
+        kv('Manual peers', (d.manual_peers || []).join(' · ') || 'none'),
+        kv('Peer exchange', d.peer_exchange_enabled ? 'enabled (validated by probe)' : 'disabled'),
+        kv('Unknown senders', (d.unknown_senders || []).map(u => u.address).join(' · ') || 'none')));
+      const log = el('div', { class: 'log-view', style: { maxHeight: '220px', marginTop: '10px' } });
+      const lines = (d.log || []).slice().reverse()
+        .map(l => `${new Date(l.ts).toLocaleTimeString()} ${l.dir.toUpperCase()} ${l.ok ? '' : '[FAIL] '}${l.detail}`);
+      log.textContent = lines.length ? lines.join('\n') : 'no discovery events recorded yet';
+      box.appendChild(el('div', { class: 'dim small mt' }, d.log_note || ''));
+      box.appendChild(log);
+    } catch (e) {
+      box.innerHTML = '';
+      box.appendChild(el('div', { class: 'dim small' }, 'unavailable: ' + errText(e)));
+    }
+  }
+
   const guide = el('div', { class: 'panel' },
     el('h3', {}, 'Common problems & what they mean'),
     el('div', { class: 'kv', id: 'guide-kv' }));
@@ -31,7 +65,7 @@ export async function render(container) {
     el('div', { class: 'kv mt' },
       kv('Product', 'PHANTOM NETWORK'),
       kv('Version', `v${state.self?.version || 'unknown'}`),
-      kv('Protocol', 'v1 (UDP beacons + HTTP/1.1 + SSE)'),
+      kv('Protocol', 'v2 (UDP beacons + peer exchange + HTTP/1.1 + SSE + mobile relay)'),
       kv('This device', `${state.self?.name} (${state.self?.os_full})`),
       kv('Data directory', state.self?.data_dir || '—'),
       kv('Python', state.self ? '' : '')));
@@ -127,13 +161,16 @@ export async function render(container) {
 
   container.appendChild(checksWrap);
   container.appendChild(perfPanel);
+  container.appendChild(discPanel);
   container.appendChild(logsPanel);
   container.appendChild(guide);
   container.appendChild(about);
   await quick();
   await perf();
   await errLog();
+  await drawDiscovery();
   loadGuide();
   const t = setInterval(() => { perf(); errLog(); }, 5000);
-  return () => clearInterval(t);
+  const t2 = setInterval(drawDiscovery, 15000);
+  return () => { clearInterval(t); clearInterval(t2); };
 }

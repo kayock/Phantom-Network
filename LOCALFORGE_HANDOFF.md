@@ -1,7 +1,7 @@
 # LOCALFORGE_HANDOFF.md
 
 Hand-off document for **LocalForge**, the local multi-agent development
-platform that maintains PHANTOM NETWORK from **v1.2.2** onward.
+platform that maintains PHANTOM NETWORK from **v1.3.0** onward.
 
 Purpose: let a small coding model work on **one component** with only this
 document plus the component's source file — without loading the whole
@@ -23,7 +23,7 @@ State lives in JSON files under a per-machine data directory.
 
 ```
 companion/            Python package — the ENTIRE backend (run: python -m companion)
-  __init__.py         __version__ ("1.2.2") + ports (single source of version truth)
+  __init__.py         __version__ ("1.3.0") + ports (single source of version truth)
   __main__.py         entry point
   app.py              App wiring: one class, one method per REST handler
   routes.py           route table (METHOD, regex) — read this to find endpoints
@@ -251,3 +251,33 @@ node tests/js/test_dsp.mjs
 Future LocalForge changes must pass these against the development tree before
 any copy into the installed application directory.
 
+
+
+---
+
+# v1.3.0 ownership map (for LocalForge agents)
+
+| Component | Files | Contract notes |
+| --- | --- | --- |
+| Mobile registry | companion/mobile.py | clients.json; secret ONLY in registration response; inbox ring per client |
+| Mobile HTTP | app.py::mobile_* + routes.py | auth=False + client_secret in body; admin rename/remove |
+| Chat 2.0 | companion/chat.py | mobile ack → ack-delivery routing; mutations.jsonl replay; ChatFileStore cap |
+| Fleet identity | app.py::identity + peers.py | kind/mobile_clients/capabilities; protocol 2, v1 accepted |
+| Discovery diag | companion/discovery.py | ring buffer ≤240; peer exchange probes before trusting |
+| Alerts | companion/alerts.py | rules in config; cooldown/duration; delivery via events+chat+sse |
+| Automation | companion/automation.py | jobs in config; EXECUTES ONLY via TransferEngine; no deletes |
+| Storage views | companion/monitor.py | mounts(view), gpu_info (no fabricated values), cpu_topology |
+| PWA | web/sw.js, manifest, offline.html | never cache /api/**; version-stamped caches |
+| Mobile UI | web/mobile.html + js/mobile/app.js | localStorage identity; 5 tabs; chunked uploads |
+| Palette | web/js/app.js::wirePalette | Ctrl/Cmd+K |
+| Signal Lab | web/js/views/signal.js + lib/dsp.js | modem framing stable: [sync2,type,seq,total,len,payload,crc2] |
+| Migration | companion/migration.py | SCHEMA_VERSION=2; backup before touch; idempotent |
+
+Small maintenance assignments (suitable for small models):
+1. Add an alert rule type `gpu_hot` reading `monitor.gpu_info()`.
+2. Mobile UI: add a "recents" list to the Files tab (localStorage only).
+3. Extend `MODEM_RATES` with a `slow` entry (150 ms) + offline test.
+4. Radar: persist the last selected filter per device (uiPrefs).
+5. Docs: keep API_REFERENCE.md in sync with any route change.
+Acceptance for all: tests pass (`python -m pytest`, `node tests/js/*.mjs`),
+no new dependencies, transfer engine untouched.

@@ -162,11 +162,70 @@ export async function render(container) {
     }
   }
 
+  /* ---- Media Party (v1.3.0) ---- */
+  const partyList = el('div', {});
+  const partyPreset = el('select', {}, Object.entries(PRESET_META).map(([n, m]) =>
+    el('option', { value: n }, `${m.ico} ${m.label}`)));
+  const partyStatus = el('div', { class: 'dim small' },
+    'Pick computers, choose a sound, launch — every connected browser schedules the same instant.');
+  async function drawParty() {
+    partyList.innerHTML = '';
+    const boxes = [];
+    for (const d of state.devices()) {
+      if (d.self || d.kind === 'mobile') continue;
+      const peer = state.peerById(d.device_id);
+      const online = peer?.status === 'online';
+      const box = el('input', { type: 'checkbox', disabled: !online });
+      box.checked = online;
+      boxes.push({ box, id: d.device_id, name: d.display_name });
+      partyList.appendChild(el('label', { class: 'row small', style: { gap: '8px', opacity: online ? 1 : .45 } },
+        box, `${online ? '🖥️' : '💤'} ${d.display_name}${online ? '' : ' (offline)'}`));
+    }
+    partyList._boxes = boxes;
+  }
+  const launchParty = async () => {
+    const boxes = (partyList._boxes || []).filter(b => b.box.checked);
+    if (!boxes.length) { toast('Select at least one computer', 'warn'); return; }
+    const playAt = Date.now() + 3000;
+    const spec = {
+      kind: 'preset', name: partyPreset.value,
+      volume: 0.6, play_at: playAt,
+      party_id: 'party_' + Math.random().toString(16).slice(2, 10),
+    };
+    let ok = 0;
+    for (const b of boxes) {
+      try { await api.mediaParty(b.id, spec); ok++; }
+      catch (e) { toast(`${b.name}: ${errText(e)}`, 'err'); }
+    }
+    partyStatus.textContent =
+      `launched on ${ok}/${boxes.length} companion(s) · play_at ${new Date(playAt).toLocaleTimeString()} · ` +
+      `each browser schedules against its measured clock offset — expect ±0.1–0.3 s drift, not sample-accuracy`;
+    toast(`Media Party launched on ${ok} device(s)`, 'ok');
+  };
+  const stopParty = async () => {
+    const boxes = (partyList._boxes || []).filter(b => b.box.checked);
+    for (const b of boxes) { api.mediaPartyStop(b.id).catch(() => {}); api.audioStop(b.id).catch(() => {}); }
+    partyStatus.textContent = 'stop sent to all selected devices';
+  };
+  const partyPanel = el('div', { class: 'panel' },
+    el('h3', {}, '🎉 Media Party (group playback)'),
+    el('div', { class: 'fld-row' },
+      el('label', { class: 'fld' }, 'Sound', partyPreset),
+      el('button', { class: 'btn primary', onclick: launchParty }, '🎉 Launch in 3 s'),
+      el('button', { class: 'btn danger', onclick: stopParty }, '■ Stop all')),
+    partyList,
+    partyStatus,
+    el('div', { class: 'dim small mt' },
+      'How it works: each participating companion publishes the scheduled command to its own browsers over SSE; ',
+      'each browser measures its clock offset against its companion and plays locally at the common instant. ',
+      'Playback respects the existing audio participation controls, the 0.8 amplitude cap and the 30 s limit.'));
+
   container.appendChild(devPanel);
   devPanel.appendChild(el('div', { class: 'row mt' },
     el('label', { class: 'row small', style: { gap: '8px' } },
       enableBox,
       el('span', {}, `Allow remote audio playback on ${state.displayName(target)} (visible control on this device)`))));
+  container.appendChild(partyPanel);
   container.appendChild(tonePanel);
   container.appendChild(presetPanel);
   container.appendChild(filePanel);
@@ -177,6 +236,8 @@ export async function render(container) {
     'No ultrasonic or covert signals are generated. The remote-audio switch lives on every participating device.'));
 
   await refresh();
+  await drawParty();
   const t = setInterval(refresh, 4000);
-  return () => clearInterval(t);
+  const t2 = setInterval(drawParty, 8000);
+  return () => { clearInterval(t); clearInterval(t2); };
 }

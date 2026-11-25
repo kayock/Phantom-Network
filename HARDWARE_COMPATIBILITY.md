@@ -74,3 +74,20 @@ Expected on the target machines: memory and CPU profiles will be similar
 * **Quadro P2000 telemetry**: reported via `nvidia-smi` queries when the
   driver is installed; the dev container has no GPU, so the Fleet Monitor
   honestly shows "not detected".
+
+
+---
+
+# v1.3.0 hardware-facing additions
+
+- Storage: mounts classified physical/virtual/snap/network/external with
+  read-only + removable flags (Linux: /proc/mounts + /sys/block/removable;
+  Windows: GetDriveTypeW). Default view hides Snap loops and virtual
+  filesystems; complete diagnostics preserved behind "Everything".
+- GPU: NVIDIA via nvidia-smi (utilization/VRAM/temp when available);
+  Intel/AMD identity via /sys/class/drm (vendor/product_name/driver).
+  Utilization for Intel/AMD is reported as unavailable — never fabricated.
+- CPU: physical cores from /proc/cpuinfo (physical id + core id) or
+  psutil.cpu_count(logical=False); logical count from os.cpu_count().
+- Phones: any modern browser (iOS Safari 16+, Android Chrome/FF); mic needs
+  secure context. Desktop browsers unchanged from v1.2.2 matrix.

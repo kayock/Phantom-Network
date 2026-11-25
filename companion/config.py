@@ -68,6 +68,20 @@ def default_config() -> dict:
         "audio_max_duration_s": 30,
         # --- intercom ---------------------------------------------------
         "intercom_enabled": True,
+        # --- mobile host (v1.3.0) ---------------------------------------
+        "mobile_host_enabled": True,        # host/relay browser clients
+        "mobile_client_ttl_ms": 45000,      # heartbeat TTL before "offline"
+        "mobile_max_attachment_mb": 50,     # per chat-file / voice note
+        # --- monitoring alerts (v1.3.0) ---------------------------------
+        "alert_rules": [],                  # see companion/alerts.py
+        # --- automation (v1.3.0) ----------------------------------------
+        "automation_jobs": [],              # watched folders + schedules
+        "automation_poll_s": 60,            # watched-folder poll interval
+        # --- storage view (v1.3.0) --------------------------------------
+        "storage_view": "useful",           # physical | useful | all
+        "storage_hidden_prefixes": ["/snap", "/boot", "/run", "/var/lib/docker"],
+        # --- notifications (v1.3.0) -------------------------------------
+        "notify_sounds_enabled": True,
         # --- monitoring ---------------------------------------------------
         "monitoring_enabled": True,
         "monitor_history_points": 240,

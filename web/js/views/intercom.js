@@ -135,13 +135,41 @@ export async function render(container) {
   });
   function currentView() { return location.hash.includes('intercom'); }
 
+  /* input/output device selection (v1.3.0) */
+  async function buildDevicePickers(containerRef) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter(d => d.kind === 'audioinput');
+      const outs = devices.filter(d => d.kind === 'audiooutput');
+      const micSel = el('select', { id: 'icom-mic', style: { maxWidth: '220px' } },
+        el('option', { value: '' }, 'default microphone'),
+        ...mics.map(m => el('option', { value: m.deviceId }, m.label || `mic ${m.deviceId.slice(0, 8)}`)));
+      const outSel = el('select', { id: 'icom-out', style: { maxWidth: '220px' } },
+        el('option', { value: '' }, 'default output'),
+        ...outs.map(o => el('option', { value: o.deviceId }, o.label || `out ${o.deviceId.slice(0, 8)}`)));
+      outSel.addEventListener('change', () => {
+        document.querySelectorAll('audio').forEach(a => {
+          try { if (outSel.value) a.setSinkId(outSel.value); } catch { /* not supported */ }
+        });
+      });
+      containerRef.appendChild(el('div', { class: 'fld-row' },
+        el('label', { class: 'fld' }, 'Microphone', micSel),
+        el('label', { class: 'fld' }, 'Output', outSel),
+        el('div', { class: 'dim small' },
+          'Labels appear after granting mic permission once. Output selection uses setSinkId (Chromium; Safari falls back to the system default).')));
+    } catch { /* enumerateDevices unavailable */ }
+  }
+  buildDevicePickers(container);
+
   async function beginTalk() {
     if (talking || !session) return;
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true,
-                 autoGainControl: true, sampleRate: SAMPLE_RATE },
-      });
+      const audioConstraints = { channelCount: 1, echoCancellation: true,
+                                 noiseSuppression: true, autoGainControl: true,
+                                 sampleRate: SAMPLE_RATE };
+      const micSel = document.getElementById('icom-mic');
+      if (micSel && micSel.value) audioConstraints.deviceId = micSel.value;
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
     } catch (e) {
       toast('Microphone unavailable: ' + errText(e) + ' — check permission/secure context', 'err', 7000);
       return;

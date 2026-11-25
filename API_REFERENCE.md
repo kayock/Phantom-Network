@@ -163,3 +163,59 @@ security wall: combined with the optional `require_token` it stops
 *accidental* configuration drift from other devices; a hostile LAN client
 can still attempt ordinary operations (see KNOWN_LIMITATIONS.md). Escape
 hatch: set `admin_local_only: false` for headless file-server setups.
+
+
+---
+
+# v1.3.0 API additions
+
+## Mobile clients
+- `POST /api/mobile/register` {name, device_type, icon, client_id?,
+  client_secret?} → 200 {ok, client{client_id, secret (ONCE), name, kind,
+  capabilities…}, host{device_id, name, version}} — auth: none.
+- `POST /api/mobile/recover` — fresh identity after browser storage loss.
+- `POST /api/mobile/heartbeat` {client_id, client_secret} → {ok, ts, ttl_ms}.
+- `POST /api/mobile/inbox` {client_id, client_secret, since_ts, limit} →
+  {messages[]} — fetch marks messages delivered and routes receipts.
+- `POST /api/mobile/chat/send` {client_id, client_secret, to_kind,
+  to_id, body, attachment?, reply_to?} → {message}.
+- `POST /api/mobile/chat/ack` {client_id, client_secret, ids, state:
+  delivered|read} → routes receipts to origin companions.
+- `POST /api/mobile/chat/mutate` {client_id, client_secret, action:
+  react|edit|delete, msg_id, emoji?, body?}.
+- `GET /api/mobile/stream?client_id=&secret=` — private SSE
+  (`event: mobile` {type: message|receipt|presence|client_updated}).
+- `GET /api/mobile/clients` → {clients[]} (public, no secrets).
+- `POST /api/mobile/clients/<id>/rename` / `…/remove` — local admin only.
+
+## GhostChat 2.0
+- `POST /api/chat/react|edit|delete` {msg_id, emoji?|body?} — mutations
+  propagate to involved companions; deletion leaves a tombstone.
+- `POST /api/chat/mutate` {mutation} — remote propagation sink.
+- `POST /api/chat/ack-delivery` {reader, reader_kind, ids, state}.
+- `POST /api/chat/file/session` {name, size, mime} → {sid, max_bytes};
+  `PUT /api/chat/file/<sid>` chunks; `POST …/finish` {sha256?} → {file};
+  `GET /api/chat/file/<id>` download (Range supported, auth: none).
+- `to_kind` gains `"mobile"` (to_id = client id) and `"system"` (local
+  alert channel, conv `system:alerts`).
+
+## Discovery / fleet
+- `GET /api/discovery/diagnostics` — socket state, interfaces, beacon
+  targets, rx/tx counters, last RX, manual peers, unknown senders,
+  peer-exchange flag, per-event ring log.
+- `POST /api/peers/exchange` {peers[]} — validated-then-added sink.
+- `GET /api/storage?view=useful|physical|all` — classified mounts (kind,
+  removable, read_only, hidden_by_config) + gpu + cpu topology.
+- `/api/monitor` snapshot gains `gpu_info`, `cpu_topology`, `storage_view`.
+
+## Alerts / automation / media
+- `GET|POST /api/alerts`, `DELETE /api/alerts/<id>` — rules
+  {type, threshold, duration_s, cooldown_s, notify{event,chat,sound}}.
+- `GET|POST /api/automation`, `DELETE /api/automation/<id>`,
+  `POST /api/automation/<id>/control` {pause|resume|run|enable|disable},
+  `POST /api/automation/preview` — jobs always execute through the
+  verified transfer engine; deletions are never mirrored.
+- `POST /api/media/party` {kind: preset|tone, name, freq, duration,
+  waveform, volume, play_at} → SSE `media_party` on the receiving
+  companion; `POST /api/media/party/stop`.
+- SSE topics added: `mobile`, `alert`, `media_party`.

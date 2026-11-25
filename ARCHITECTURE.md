@@ -156,3 +156,37 @@ amplitude ≤ 0.8, duration ≤ 30 s, 20 Hz–20 kHz, per-device enable switch.
 * Corrupted stream → SHA-256 mismatch → `.part` moved to `.part.corrupt`,
   job `failed`, destination never finalized, source untouched; event
   `verification_failed` recorded.
+
+
+---
+
+# v1.3.0 architecture notes (PHANTOM MOBILE)
+
+- **Mobile clients** are logical participants hosted by a companion
+  (`companion/mobile.py`): registry + per-client inbox files + heartbeat
+  presence. The fleet view merges computer peers with their hosted
+  `mobile_clients` (carried in the protocol-2 identity payload; protocol-1
+  peers keep working and simply advertise no clients).
+- **Message routing** (`companion/chat.py`): `to_kind: mobile` resolves the
+  recipient phone's host (local registry or remote peer identity cache) and
+  delivers via the SAME `/api/chat/incoming` channel computers use; the
+  host stores the message in the client inbox and pushes it on the private
+  SSE topic. Receipts flow back through `/api/chat/ack-delivery`.
+  Unknown/offline hosts queue the message in the persistent outbox and
+  retry on fleet updates (discovery wake) and every 20 s.
+- **Mutations** (reactions/edits/tombstones) are applied locally, persisted
+  to `mutations.jsonl` (replayed on load) and propagated to every involved
+  companion via `/api/chat/mutate`; hosted inboxes are patched row-wise.
+- **PWA**: `web/sw.js` precaches the static shell only; `/api/**` is never
+  cached; navigations fall back to `offline.html` which shows NO fabricated
+  state. Cache names are version-stamped; activation deletes old caches and
+  notifies open clients (update toast).
+- **Data migration**: `companion/migration.py` runs before services open
+  stores; state files are backed up to `migrations/v<from>-<stamp>/`.
+- **High-risk boundaries** (do not "optimize" these away):
+  1. `transfers.py` / `hashprep.py` are untouched since v1.2.2 — physical
+     50 GB qualification depends on this code exactly as it is.
+  2. Delivery to a phone must ALWAYS be client-ack based.
+  3. `sw.js` must never cache `/api/**`.
+  4. Mobile registry secrets never leave the host except in the single
+     registration response.

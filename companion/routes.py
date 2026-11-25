@@ -24,6 +24,9 @@ from .util import now_ms
 
 WEB_TYPES = {
     ".html": "text/html; charset=utf-8",
+    ".webmanifest": "application/manifest+json",
+    ".txt": "text/plain; charset=utf-8",
+    ".webm": "audio/webm",
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".mjs": "application/javascript; charset=utf-8",
@@ -31,7 +34,6 @@ WEB_TYPES = {
     ".png": "image/png",
     ".ico": "image/x-icon",
     ".json": "application/json",
-    ".txt": "text/plain; charset=utf-8",
     ".wav": "audio/wav",
     ".woff2": "font/woff2",
 }
@@ -84,6 +86,11 @@ def register_routes(api) -> None:
     r.add("POST", r"/api/peers/([^/]+)/metadata", lambda req: api.peer_metadata(req))
     r.add("POST", r"/api/peers/([^/]+)/probe", lambda req: api.peer_probe(req))
     r.add("POST", r"/api/radar/sweep", lambda req: api.radar_sweep(req))
+    r.add("POST", r"/api/peers/exchange", lambda req: json_response({
+        "ok": True, **api.discovery.receive_exchange(
+            (req.json() or {}).get("peers") or [], req.client_addr)}))
+    r.add("GET", r"/api/discovery/diagnostics",
+          lambda req: api.discovery_diagnostics(req))
     r.add("GET", r"/api/setup/status", lambda req: api.setup_status(req))
 
     # -- filesystem -------------------------------------------------------
@@ -131,6 +138,23 @@ def register_routes(api) -> None:
     r.add("POST", r"/api/sync/preview", lambda req: api.sync_preview(req))
     r.add("POST", r"/api/sync/apply", lambda req: api.sync_apply(req))
 
+    # -- mobile clients (v1.3.0) --------------------------------------------
+    r.add("POST", r"/api/mobile/register", lambda req: api.mobile_register(req), auth=False)
+    r.add("POST", r"/api/mobile/recover", lambda req: api.mobile_recover(req), auth=False)
+    r.add("POST", r"/api/mobile/heartbeat", lambda req: api.mobile_heartbeat(req), auth=False)
+    r.add("POST", r"/api/mobile/prefs", lambda req: api.mobile_prefs(req), auth=False)
+    r.add("POST", r"/api/mobile/chat/send", lambda req: api.mobile_chat_send(req), auth=False)
+    r.add("POST", r"/api/mobile/chat/ack", lambda req: api.mobile_chat_ack(req), auth=False)
+    r.add("POST", r"/api/mobile/chat/mutate", lambda req: api.mobile_chat_mutate(req), auth=False)
+    r.add("POST", r"/api/mobile/inbox", lambda req: api.mobile_inbox(req), auth=False)
+    r.add("POST", r"/api/mobile/unread", lambda req: api.mobile_unread(req), auth=False)
+    r.add("GET", r"/api/mobile/stream", lambda req: api.mobile_stream(req), auth=False)
+    r.add("GET", r"/api/mobile/clients", lambda req: api.mobile_clients(req), auth=False)
+    r.add("POST", r"/api/mobile/clients/([^/]+)/rename",
+          lambda req: api.mobile_rename(req))
+    r.add("POST", r"/api/mobile/clients/([^/]+)/remove",
+          lambda req: api.mobile_remove(req))
+
     # -- chat -------------------------------------------------------------
     r.add("POST", r"/api/chat/send", lambda req: api.chat_send(req))
     r.add("POST", r"/api/chat/incoming", lambda req: api.chat_incoming(req))
@@ -141,6 +165,19 @@ def register_routes(api) -> None:
     r.add("GET", r"/api/chat/history", lambda req: api.chat_history(req))
     r.add("POST", r"/api/chat/groups", lambda req: api.chat_group_create(req))
     r.add("DELETE", r"/api/chat/groups/([^/]+)", lambda req: api.chat_group_delete(req))
+    # v1.3.0: mutations, receipts, attachments
+    r.add("POST", r"/api/chat/mutate", lambda req: api.chat_mutate(req))
+    r.add("POST", r"/api/chat/react", lambda req: api.chat_react(req))
+    r.add("POST", r"/api/chat/edit", lambda req: api.chat_edit(req))
+    r.add("POST", r"/api/chat/delete", lambda req: api.chat_delete_msg(req))
+    r.add("POST", r"/api/chat/ack-delivery", lambda req: api.chat_ack_delivery(req))
+    r.add("POST", r"/api/chat/file/session", lambda req: api.chat_file_session(req))
+    r.add("PUT", r"/api/chat/file/([^/]+)", lambda req: api.chat_file_chunk(req))
+    r.add("POST", r"/api/chat/file/([^/]+)/finish",
+          lambda req: api.chat_file_finish(req))
+    r.add("POST", r"/api/chat/file/([^/]+)/cancel",
+          lambda req: api.chat_file_cancel(req))
+    r.add("GET", r"/api/chat/file/([^/]+)", lambda req: api.chat_file_download(req), auth=False)
 
     # -- audio --------------------------------------------------------------
     r.add("GET", r"/api/audio/status", lambda req: json_response(
@@ -163,6 +200,25 @@ def register_routes(api) -> None:
     r.add("POST", r"/api/intercom/relay", lambda req: api.icom_relay(req))
     r.add("POST", r"/api/intercom/stop", lambda req: api.icom_stop(req))
 
+    # -- monitoring alerts (v1.3.0) --------------------------------------------
+    r.add("GET", r"/api/alerts", lambda req: api.alerts_list(req))
+    r.add("POST", r"/api/alerts", lambda req: api.alerts_set(req))
+    r.add("DELETE", r"/api/alerts/([^/]+)", lambda req: api.alerts_delete(req))
+
+    # -- automation: watched folders + schedules (v1.3.0) ----------------------
+    r.add("GET", r"/api/automation", lambda req: api.automation_list(req))
+    r.add("POST", r"/api/automation", lambda req: api.automation_set(req))
+    r.add("POST", r"/api/automation/([^/]+)/control",
+          lambda req: api.automation_control(req))
+    r.add("DELETE", r"/automation/([^/]+)", lambda req: api.automation_delete(req))
+    r.add("DELETE", r"/api/automation/([^/]+)", lambda req: api.automation_delete(req))
+    r.add("POST", r"/api/automation/preview", lambda req: api.automation_preview(req))
+
+    # -- storage view + media party (v1.3.0) -----------------------------------
+    r.add("GET", r"/api/storage", lambda req: api.storage_view(req))
+    r.add("POST", r"/api/media/party", lambda req: api.media_party(req))
+    r.add("POST", r"/api/media/party/stop", lambda req: api.party_stop(req))
+
     # -- monitoring -----------------------------------------------------------
     r.add("GET", r"/api/monitor", lambda req: json_response(
         {"ok": True, **api.monitor.snapshot()}))
@@ -182,4 +238,9 @@ def register_routes(api) -> None:
 
     # -- static web UI ------------------------------------------------------------
     r.add("GET", r"/", api.serve_index, auth=False)
+    r.add("GET", r"/m", api.serve_mobile, auth=False)          # mobile UI
+    r.add("GET", r"/m/", api.serve_mobile, auth=False)
+    r.add("GET", r"/offline.html", api.serve_static, auth=False)
+    r.add("GET", r"/sw.js", api.serve_static, auth=False)
+    r.add("GET", r"/manifest.webmanifest", api.serve_static, auth=False)
     r.add("GET", r"/(?!api/).*", api.serve_static, auth=False)

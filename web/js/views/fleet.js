@@ -1,4 +1,6 @@
-/* PHANTOM NETWORK — fleet.js (Fleet Monitor) */
+/* PHANTOM NETWORK — fleet.js (Fleet Monitor 2.0)
+   "All Devices" fleet overview + per-device detail, storage views
+   (useful / physical / all), vendor-aware GPU info, honest telemetry. */
 
 import { api } from '../api.js';
 import { state } from '../state.js';
@@ -7,17 +9,21 @@ import {
 } from '../ui.js';
 
 export async function render(container) {
-  const sel = el('select', { style: { maxWidth: '240px' } });
+  const mode = el('select', { style: { maxWidth: '220px' } },
+    el('option', { value: 'overview' }, '▦ All Devices overview'),
+    ...state.devices().map(d =>
+      el('option', { value: d.device_id }, 'Per-device: ' + d.display_name)));
   const body = el('div', {});
   const note = el('div', { class: 'dim small' }, '');
 
   async function refreshDevices() {
-    const cur = sel.value;
-    sel.innerHTML = '';
+    const cur = mode.value;
+    mode.innerHTML = '';
+    mode.appendChild(el('option', { value: 'overview' }, '▦ All Devices overview'));
     for (const d of state.devices()) {
-      sel.appendChild(el('option', { value: d.device_id }, d.display_name));
+      mode.appendChild(el('option', { value: d.device_id }, 'Per-device: ' + d.display_name));
     }
-    if (cur) sel.value = cur;
+    if (cur) mode.value = cur;
   }
 
   function spark(history, key, color, label) {
@@ -43,11 +49,61 @@ export async function render(container) {
       el('div', { class: 'dim small' }, label));
   }
 
-  async function refresh() {
-    try {
-    await refreshDevices();
-    const device = sel.value || 'self';
+  /* ---------------- All Devices overview (v1.3.0) ---------------- */
+  async function renderOverview() {
     body.innerHTML = '';
+    const online = state.devices().filter(d => !d.self);
+    const targets = [{ device_id: 'self', display_name: state.self?.name + ' (this device)' },
+      ...online.filter(d => d.participating !== false)];
+    const grid = el('div', { class: 'grid-3' });
+    const snapshots = await Promise.all(targets.map(async (d) => {
+      try { return { d, m: await api.monitor(d.device_id) }; }
+      catch { return { d, m: null }; }
+    }));
+    for (const { d, m } of snapshots) {
+      const onlineNow = !!m;
+      const card = el('div', { class: 'panel' },
+        el('h3', {}, `${deviceIcon({ os: m?.os?.split(' ')[0] }) || '📟'} ${d.display_name}`),
+        onlineNow ? el('div', {},
+          el('div', { class: 'spread small' },
+            el('span', { class: 'dim' }, 'CPU'), el('b', {}, fmtPct(m.cpu?.percent))),
+          el('div', { class: 'progress thin' },
+            el('div', { style: { width: (m.cpu?.percent || 0) + '%' } })),
+          el('div', { class: 'spread small mt' },
+            el('span', { class: 'dim' }, 'RAM'), el('b', {}, fmtPct(m.memory?.percent))),
+          el('div', { class: 'progress thin' },
+            el('div', { style: { width: (m.memory?.percent || 0) + '%' } })),
+          el('div', { class: 'kv mt' },
+            kv('Disks', diskSummary(m.disks)),
+            kv('Net', `${fmtBps(m.network?.rx_bps)} ↓ ${fmtBps(m.network?.tx_bps)} ↑`),
+            kv('Companion', `${fmtSize(m.process?.rss_bytes)} · ${m.process?.threads ?? '—'} thr`),
+            kv('GPU', gpuSummary(m.gpu_info, m.gpu)),
+            kv('Uptime', fmtUptime(m.uptime_s))))
+          : el('div', { class: 'empty-note' }, 'offline — no telemetry available, nothing invented'));
+      card.addEventListener('click', () => { mode.value = d.device_id; refresh(); });
+      grid.appendChild(card);
+    }
+    body.appendChild(grid);
+    note.textContent = `overview refreshed ${new Date().toLocaleTimeString()} — click a card for the detailed view`;
+  }
+
+  function diskSummary(disks) {
+    if (!disks || !disks.length) return '—';
+    const minFree = Math.min(...disks.map(d => (d.percent == null ? 100 : 100 - d.percent)));
+    return `${disks.length} mount${disks.length === 1 ? '' : 's'} · least free ${fmtPct(minFree === 100 ? null : minFree)}`;
+  }
+  function gpuSummary(gpuInfo, legacy) {
+    const gpus = gpuInfo?.gpus || legacy?.gpus || [];
+    if (!gpus.length) return 'not detected';
+    return gpus.map(g =>
+      `${g.vendor || '?'} ${g.name}` +
+      (g.util_available ? ` (${fmtPct(g.util_percent)}, ${g.mem_used_mb ?? '—'} MB)` : ' (util n/a)')).join('; ');
+  }
+
+  /* ---------------- per-device detail ---------------- */
+  async function renderDetail() {
+    body.innerHTML = '';
+    const device = mode.value;
     let m;
     try {
       m = await api.monitor(device);
@@ -58,16 +114,17 @@ export async function render(container) {
     note.textContent = `measured ${new Date(m.ts).toLocaleTimeString()} · telemetry via ${m.psutil ? 'psutil' : 'platform APIs'} · unavailable metrics show —`;
     note.className = 'dim small';
 
-    // CPU
+    const topo = m.cpu_topology || {};
     const cpuPanel = el('div', { class: 'panel' },
       el('h3', {}, 'CPU'),
       el('div', { class: 'kv' },
         kv('Utilization', fmtPct(m.cpu.percent)),
-        kv('Cores', m.cpu.cores ?? '—'),
+        kv('Cores', topo.physical != null
+          ? `${topo.physical} physical / ${topo.logical} logical`
+          : (m.cpu.cores ?? '—')),
         kv('Load average', Array.isArray(m.cpu.loadavg) ? m.cpu.loadavg.map(x => x.toFixed(2)).join(' · ') : '—')));
     cpuPanel.appendChild(await sparkEl(device, 'cpu'));
 
-    // Memory
     const mem = m.memory;
     const memPanel = el('div', { class: 'panel' },
       el('h3', {}, 'Memory'),
@@ -79,19 +136,39 @@ export async function render(container) {
         kv('Swap / pagefile', mem.swap_total ? `${fmtSize(mem.swap_used)} / ${fmtSize(mem.swap_total)} (${fmtPct(mem.swap_percent)})` : 'none')));
     memPanel.appendChild(await sparkEl(device, 'mem'));
 
-    // Disks
+    /* Disks with storage-view filtering (v1.3.0) */
+    const view = state.uiPrefs.storage_view || 'useful';
+    const viewSel = el('select', { style: { maxWidth: '160px' },
+      onchange: () => { state.uiPrefs.storage_view = viewSel.value; state.savePrefs(); refresh(); } },
+      el('option', { value: 'useful', ...(view === 'useful' ? { selected: true } : {}) }, 'Useful mounts (default)'),
+      el('option', { value: 'physical', ...(view === 'physical' ? { selected: true } : {}) }, 'Physical disks only'),
+      el('option', { value: 'all', ...(view === 'all' ? { selected: true } : {}) }, 'Everything (diagnostics)'));
     const diskPanel = el('div', { class: 'panel' },
-      el('h3', {}, 'Disks'));
-    if (!m.disks.length) diskPanel.appendChild(el('div', { class: 'dim small' }, 'no mount points reported'));
-    for (const d of m.disks) {
+      el('div', { class: 'spread' }, el('h3', {}, 'Disks'), viewSel));
+    let mounts = m.disks || [];
+    try {
+      const st = await api.storage(device, view);
+      mounts = st.mounts || [];
+    } catch { /* older peer: fall back to snapshot list */ }
+    if (!mounts.length) diskPanel.appendChild(el('div', { class: 'dim small' }, 'no mount points in this view'));
+    for (const d of mounts) {
+      const kindBadge = d.kind === 'external' || d.removable ? el('span', { class: 'badge cyan' }, 'REMOVABLE')
+        : d.kind === 'network' ? el('span', { class: 'badge' }, 'NETWORK')
+        : d.kind === 'snap' ? el('span', { class: 'badge' }, 'SNAP')
+        : d.kind === 'virtual' ? el('span', { class: 'badge' }, 'VIRTUAL')
+        : el('span', { class: 'badge vio' }, 'PHYSICAL');
       diskPanel.appendChild(el('div', { style: { marginBottom: '10px' } },
         el('div', { class: 'spread small' },
-          el('span', { class: 'mono' }, d.mount),
+          el('span', {}, el('span', { class: 'mono' }, d.mount), ' ', kindBadge,
+            d.read_only ? el('span', { class: 'badge warn' }, 'READ-ONLY') : null),
           el('span', { class: 'dim' }, `${fmtSize(d.used)} / ${fmtSize(d.total)} · ${fmtSize(d.free)} free`)),
         el('div', { class: 'progress thin' }, el('div', { style: { width: (d.percent || 0) + '%' } }))));
     }
+    if (view !== 'all') {
+      diskPanel.appendChild(el('div', { class: 'dim small mt' },
+        'Snap loops and virtual mounts are hidden in this view — switch to "Everything" for complete diagnostics.'));
+    }
 
-    // Network
     const netPanel = el('div', { class: 'panel' },
       el('h3', {}, 'Network'),
       el('div', { class: 'kv' },
@@ -105,7 +182,7 @@ export async function render(container) {
         (m.interfaces || []).map(i => `${i.name || 'if'}: ${i.ipv4 || ''} ${i.mac || ''}`).join('\n') || '—'));
     netPanel.appendChild(await sparkEl(device, 'net'));
 
-    // System + GPU + process
+    const gpuInfo = m.gpu_info || { gpus: [] };
     const sysPanel = el('div', { class: 'panel' },
       el('h3', {}, 'System'),
       el('div', { class: 'kv' },
@@ -115,7 +192,17 @@ export async function render(container) {
         kv('Companion', `v${state.self?.version} · python ${m.python}`),
         kv('Companion memory', fmtSize(m.process?.rss_bytes)),
         kv('Companion threads', m.process?.threads ?? '—'),
-        kv('GPU', m.gpu ? m.gpu.gpus.map(g => `${g.name} (${fmtPct(g.util_percent)}, ${g.mem_used_mb ?? '—'} MB)`).join('; ') : 'not detected (no nvidia-smi)')));
+        kv('GPU', gpuSummary(gpuInfo, m.gpu))));
+    for (const g of gpuInfo.gpus || []) {
+      sysPanel.appendChild(el('div', { class: 'dim small' },
+        `• ${g.vendor} ${g.name} — ${g.util_available
+          ? `util ${fmtPct(g.util_percent)}, VRAM ${g.mem_used_mb ?? '—'}/${g.mem_total_mb ?? '—'} MB, ${g.temp_c ?? '—'}°C`
+          : 'identity only (utilization needs the vendor tooling; reported honestly as unavailable)'}`));
+    }
+    if (!gpuInfo.gpus?.length) {
+      sysPanel.appendChild(el('div', { class: 'dim small' },
+        'No NVIDIA/Intel/AMD adapter detected through lightweight probes (nvidia-smi, sysfs drm).'));
+    }
 
     const grid = el('div', { class: 'grid-3' });
     grid.appendChild(cpuPanel);
@@ -124,12 +211,6 @@ export async function render(container) {
     grid.appendChild(diskPanel);
     grid.appendChild(netPanel);
     body.appendChild(grid);
-    } catch (e) {
-      body.innerHTML = '';
-      body.appendChild(el('div', { class: 'panel' },
-        el('h3', {}, 'Fleet Monitor error'),
-        el('div', { class: 'dim' }, errText(e))));
-    }
   }
 
   function kv(k, v) {
@@ -146,11 +227,24 @@ export async function render(container) {
     } catch { return el('div', { class: 'dim small' }, 'no history yet'); }
   }
 
+  async function refresh() {
+    try {
+      await refreshDevices();
+      if (mode.value === 'overview') await renderOverview();
+      else await renderDetail();
+    } catch (e) {
+      body.innerHTML = '';
+      body.appendChild(el('div', { class: 'panel' },
+        el('h3', {}, 'Fleet Monitor error'),
+        el('div', { class: 'dim' }, errText(e))));
+    }
+  }
+
   container.appendChild(el('div', { class: 'row', style: { marginBottom: '10px' } },
-    el('span', { class: 'dim small' }, 'Device'), sel));
+    el('span', { class: 'dim small' }, 'View'), mode));
   container.appendChild(note);
   container.appendChild(body);
-  sel.addEventListener('change', refresh);
+  mode.addEventListener('change', refresh);
   await refresh();
   const t = setInterval(refresh, 5000);
   return () => clearInterval(t);

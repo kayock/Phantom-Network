@@ -105,7 +105,7 @@ during/after verification refuse the deletion; symbolic links are never
 followed into deletion. The cost is one extra full read of the source per
 move — deliberate: source preservation outranks transfer speed.
 
-**v1.2.2 — source checksum preparation is asynchronous.** Before streaming,
+**v1.3.0 — source checksum preparation is asynchronous.** Before streaming,
 the destination companion starts or joins `POST /api/fs/hash/prepare` on the
 source and polls `GET /api/fs/hash/prepare/{id}` with short HTTP timeouts.
 Identical unchanged sources share one worker. Job status `hashing` exposes
@@ -184,3 +184,18 @@ through companion-to-companion pulls.
 PTT audio is base64 Int16 LE PCM at 16 kHz mono, ~60 ms chunks, relayed
 companion→companion over `POST /api/intercom/relay` and delivered to
 browsers via SSE. Live relay only — nothing is persisted.
+
+
+---
+
+# v1.3.0: chat file store (not the transfer engine)
+
+Chat attachments from phones/voice notes use a dedicated store
+(`data_dir/chat_files/`) — deliberately separate from authorized shares:
+`POST /api/chat/file/session` → `PUT /api/chat/file/<sid>` (512 KiB chunks)
+→ `POST /api/chat/file/<id>/finish` (server-side SHA-256; client may pass
+its own) → `GET /api/chat/file/<id>` (Range-capable download). Cap:
+`mobile_max_attachment_mb` (default 50). Computer↔computer attachments
+keep using the standard verified transfer engine. **The companion↔companion
+transfer protocol itself is UNCHANGED since v1.2.2** — see the sections
+above; the async checksum-preparation phase ("hashing") is part of it.

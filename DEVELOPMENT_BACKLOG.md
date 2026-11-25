@@ -65,3 +65,26 @@ stepping on each other.
 * Keep the pure-stdlib guarantee: any new dependency needs a graceful fallback and a KNOWN_LIMITATIONS.md entry.
 * Transfer/protocol changes must update FILE_TRANSFER_PROTOCOL.md and pass the corrupting-proxy test pattern.
 * UI additions: `render(container) → cleanup` contract; every visible control must do something real (no decorative controls).
+
+
+---
+
+# v1.3.0 outcome + next backlog
+
+Delivered in v1.3.0: mobile identity/QR/relay, GhostChat 2.0, PWA, mobile
+UI, mobile file sharing, discovery diagnostics + peer exchange, migration,
+fleet overview + storage views + GPU honesty + capability badges, alerts,
+watched folders/schedules, palette, Media Party, waterfall + advanced
+morse + acoustic modem, intercom device pickers, optional TLS, Windows CI
+workflow (unexecuted), tray script (optional).
+
+Deferred / next (in order):
+1. WebRTC intercom for low-latency phone voice (signaling via companion
+   SSE; PCM/SSE stays as fallback). Physical mic verification first.
+2. iOS Safari microphone + PWA push on real devices (needs trusted TLS).
+3. Windows exe via the delivered CI workflow; MSI/NSIS installer.
+4. mDNS/DNS-SD discovery as an optional mechanism.
+5. Group avatars + typing indicators; per-conv mute server-side.
+6. Encrypted transport research (documented proposal only — no custom crypto).
+7. Mobile UI: per-conversation notification prefs mirrored to host.
+8. Command palette actions registry (pluggable commands).

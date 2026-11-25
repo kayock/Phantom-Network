@@ -68,6 +68,11 @@ function Pane(side, deviceId, startDir) {
 
   const crumbs = el('div', { class: 'crumbs' });
   const searchBox = el('input', { placeholder: 'Search here…', style: { maxWidth: '150px' } });
+  const extSel = el('select', { style: { maxWidth: '120px' },
+    onchange: () => { state.uiPrefs.fc_ext = extSel.value; state.savePrefs(); paint(); } },
+    el('option', { value: '' }, 'all types'),
+    ...['jpg', 'png', 'mp3', 'wav', 'mp4', 'pdf', 'txt', 'zip', 'iso'].map(x =>
+      el('option', { value: x, ...(state.uiPrefs.fc_ext === x ? { selected: true } : {}) }, `.${x}`)));
   const searchOut = el('div', {});
   const listWrap = el('div', { class: 'fc-list' });
   const foot = el('div', { class: 'fc-foot' }, '—');
@@ -105,7 +110,7 @@ function Pane(side, deviceId, startDir) {
   const head = el('div', { class: 'fc-head' },
     el('div', { class: 'row' }, deviceSel, el('span', { class: 'grow' }),
        favBtn, hiddenBtn, upBtn, homeBtn),
-    el('div', { class: 'row' }, crumbs, el('span', { class: 'grow' }), searchBox),
+    el('div', { class: 'row' }, crumbs, el('span', { class: 'grow' }), extSel, searchBox),
     el('div', { class: 'fc-toolbar' },
       rootSel, favSel, newBtn, uplBtn, selAllBtn, copyBtn, moveBtn, delBtn));
 
@@ -238,7 +243,17 @@ function Pane(side, deviceId, startDir) {
       th('name', 'Name'), th('size', 'Size'), th('ext', 'Type'),
       th('mtime', 'Modified')));
     const tbody = el('tbody', {});
-    for (const entry of entries) {
+    /* v1.3.0: extension filter (local view filter only — nothing hidden server-side) */
+    const extFilter = state.uiPrefs.fc_ext || '';
+    const visible = extFilter
+      ? entries.filter(e => (e.ext || '').toLowerCase() === extFilter
+                            || (e.type === 'dir'))
+      : entries;
+    if (extFilter && !visible.some(e => e.type !== 'dir')) {
+      tbody.appendChild(el('tr', {}, el('td', { colspan: '4', class: 'dim' },
+        `no .${extFilter} files in this directory`)));
+    }
+    for (const entry of visible) {
       const tr = el('tr', {
         class: selected.has(entry.path) ? 'sel' : '',
         onmousedown: (e) => {

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>PHANTOM — Mobile</title>
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0c14">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Phantom">
+<link rel="stylesheet" href="/css/mobile.css">
+</head>
+<body>
+<!-- ============ onboarding (no stored identity) ============ -->
+<div id="onboard" class="screen hidden">
+  <div class="onboard-card">
+    <img src="/assets/logo.svg" alt="" class="onboard-logo">
+    <div class="onboard-title">PHANTOM NETWORK</div>
+    <div class="onboard-sub">register this device on your private LAN</div>
+    <label class="fld">Device name
+      <input id="ob-name" type="text" maxlength="40" placeholder="My iPhone" autocomplete="off">
+    </label>
+    <label class="fld">Device type
+      <select id="ob-type">
+        <option value="phone">📱 Phone</option>
+        <option value="tablet">📲 Tablet</option>
+        <option value="laptop">💻 Laptop</option>
+        <option value="watch">⌚ Watch</option>
+        <option value="other">📟 Other</option>
+      </select>
+    </label>
+    <div class="ob-icons" id="ob-icons"></div>
+    <div class="ob-err" id="ob-err"></div>
+    <button class="btn primary block" id="ob-register">Register with this companion</button>
+    <div class="onboard-note">This registers you as an <b>independent participant</b> of
+      Phantom Network with your own identity and inbox — hosted by this companion.
+      Nothing is sent to any cloud service.</div>
+  </div>
+</div>
+
+<!-- ============ main app ============ -->
+<div id="mapp" class="screen hidden">
+  <header class="mtopbar">
+    <img src="/assets/logo.svg" alt="" class="mlogo" id="m-logo">
+    <div class="mtitle" id="m-title">Home</div>
+    <div class="mconn" id="m-conn" title="Connection to host">●</div>
+  </header>
+
+  <main class="mview" id="m-view"></main>
+
+  <nav class="mtabs" id="m-tabs">
+    <button class="mtab active" data-tab="home"><span class="tico">◈</span><span>Home</span></button>
+    <button class="mtab" data-tab="chat"><span class="tico">◌</span><span>Chat</span><span class="mbadge" id="m-chat-badge" hidden></span></button>
+    <button class="mtab" data-tab="devices"><span class="tico">◉</span><span>Devices</span></button>
+    <button class="mtab" data-tab="files"><span class="tico">▤</span><span>Files</span></button>
+    <button class="mtab" data-tab="more"><span class="tico">⋯</span><span>More</span></button>
+  </nav>
+</div>
+
+<!-- recording overlay -->
+<div id="rec-overlay" class="rec-overlay hidden">
+  <div class="rec-card">
+    <div class="rec-dot"></div>
+    <div class="rec-time" id="rec-time">0:00</div>
+    <div class="rec-note">voice message recording</div>
+    <div class="rec-actions">
+      <button class="btn danger" id="rec-discard">Discard</button>
+      <button class="btn" id="rec-stop">Preview</button>
+    </div>
+  </div>
+</div>
+
+<!-- preview player overlay -->
+<div id="play-overlay" class="rec-overlay hidden">
+  <div class="rec-card">
+    <div class="rec-note" id="pv-title">Preview</div>
+    <audio id="pv-audio" controls></audio>
+    <div class="rec-actions">
+      <button class="btn danger" id="pv-discard">Discard</button>
+      <button class="btn primary" id="pv-send">Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="mtoast-layer" id="m-toasts"></div>
+<div class="msheet-layer hidden" id="m-sheet"><div class="msheet" id="m-sheet-card"></div></div>
+<div class="mmodal-layer hidden" id="m-modal"><div class="mmodal-card" id="m-modal-card"></div></div>
+
+<script src="/js/mobile/app.js" type="module"></script>
+</body>
+</html>

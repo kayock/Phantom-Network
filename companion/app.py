@@ -22,7 +22,9 @@ from typing import Optional
 
 import shutil
 from . import DEFAULT_API_PORT, __product__, __version__
+from .alerts import AlertEngine
 from .audio import AudioService, PRESETS
+from .automation import AutomationEngine
 from .chat import ChatEngine
 from .config import Config, resolve_data_dir
 from .discovery import DiscoveryService
@@ -35,6 +37,8 @@ from .httpd import PhantomServer, Response, Router, SSEHub, file_response, \
     json_response, error_response
 from .intercom import IntercomService
 from .logging_setup import setup_logging
+from .migration import run_migrations
+from .mobile import MobileClientRegistry
 from .monitor import Monitor
 from .peers import PeerClient, PeerRegistry
 from .routes import WEB_TYPES, register_routes
@@ -55,7 +59,16 @@ class App:
         self.log.info("%s companion v%s starting (data: %s)",
                       __product__, __version__, self.data_dir)
 
+        # v1.3.1 ordering fix: migrate BEFORE Config opens config.json so
+        # the schema_version marker is visible to the running process
+        # immediately (previously it only appeared after a restart)
+        self.migration = run_migrations(self.data_dir)
         self.config = Config(self.data_dir)
+        if self.migration.from_version < self.migration.to_version:
+            self.log.info("data migration %s → %s complete (backup: %s)",
+                          self.migration.from_version,
+                          self.migration.to_version,
+                          self.migration.backup_dir or "n/a")
         if args.name:
             self.config.set("device_name", args.name)
         if args.port:
@@ -80,6 +93,10 @@ class App:
                                         self.log)
         self.chat = ChatEngine(self.data_dir, self.config, self.registry,
                                self.events, self.sse, self.identity, self.log)
+        self.mobile = MobileClientRegistry(self.data_dir, self.config,
+                                           self.events, self.sse, self.log)
+        self.chat.wire_mobile(self.mobile)
+        self.automation = AutomationEngine(self.config, self.registry, self.log)
         self.audio = AudioService(self.data_dir, self.config, self.events,
                                   self.log)
         self.audio.attach_sandbox(self.sandbox)
@@ -87,6 +104,9 @@ class App:
                                         self.events, self.sse, self.identity,
                                         self.log)
         self.monitor = Monitor(self.config, self.sandbox.shares, self.log)
+        self.alerts = AlertEngine(self.config, self.registry, self.events,
+                                  self.chat, self.transfers, self.monitor,
+                                  self.sse, self.log)
         self.uploads = UploadSessions(self.sandbox,
                                       os.path.join(self.data_dir, "uploads"))
         self.discovery = DiscoveryService(self.config, self.registry,
@@ -96,6 +116,9 @@ class App:
         self._stop_event = threading.Event()
 
         register_routes(self)
+        self.automation.attach_api(self)
+        # queued messages retry promptly when beacons reveal hosted phones
+        self.discovery.on_clients_changed = self.chat.on_fleet_update
 
     # ------------------------------------------------------------------
     # identity / ports
@@ -119,6 +142,23 @@ class App:
         ident["audio_enabled"] = bool(self.config.get("remote_audio_enabled", True))
         ident["intercom_enabled"] = bool(self.config.get("intercom_enabled", True))
         ident["shares_count"] = len(self.sandbox.shares())
+        # v1.3.0: explicit participant kind + hosted mobile clients +
+        # a full capability map (fleet UIs show honest buttons only)
+        ident["kind"] = "computer"
+        ident["mobile_clients"] = self.mobile.public_list(
+            ident["device_id"], ident["name"]) if self.config.get(
+            "mobile_host_enabled", True) else []
+        ident["capabilities"] = {
+            "shares": len(self.sandbox.shares()),
+            "chat": True,
+            "mobile_host": bool(self.config.get("mobile_host_enabled", True)),
+            "audio": ident["audio_enabled"],
+            "intercom": ident["intercom_enabled"],
+            "monitoring": bool(self.config.get("monitoring_enabled", True)),
+            "automation": True,
+            "alerts": True,
+            "tls": self.config.get("tls_enabled", False),
+        }
         return ident
 
     def _own_addresses(self) -> list:
@@ -138,16 +178,39 @@ class App:
                              f"Cannot bind API port {port}: {exc}",
                              severity="error")
             return 2
+        # v1.3.0 optional TLS: HTTPS for secure-context features (mic,
+        # PWA install on iOS).  OFF by default; never self-configured.
+        if self.config.get("tls_enabled"):
+            try:
+                import ssl as _ssl
+                cert = self.config.get("tls_cert") or ""
+                key = self.config.get("tls_key") or ""
+                if not cert or not key or not (os.path.exists(cert)
+                                               and os.path.exists(key)):
+                    raise FileNotFoundError(
+                        f"tls_cert ({cert!r}) or tls_key ({key!r}) missing")
+                ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(cert, key)
+                self.server.socket = ctx.wrap_socket(self.server.socket,
+                                                     server_side=True)
+                self.log.info("TLS enabled on port %d (cert: %s)", port, cert)
+            except Exception as exc:
+                self.log.error("TLS setup failed (%s) — continuing on HTTP",
+                               exc)
+                self.events.emit("companion_error",
+                                 f"TLS setup failed: {exc} — serving HTTP",
+                                 severity="warn")
         self.discovery.start()
         self.server_thread = threading.Thread(target=self.server.serve_forever,
                                               kwargs={"poll_interval": 0.5},
                                               name="pn-http", daemon=True)
         self.server_thread.start()
+        scheme = "https" if self.config.get("tls_enabled") else "http"
         self.events.emit("system",
                          f"Companion online: {self.config.get('device_name')} "
                          f"on port {port} ({', '.join(self._own_addresses()) or 'no LAN address'})")
-        self.log.info("companion serving on 0.0.0.0:%d  UI: http://localhost:%d",
-                      port, port)
+        self.log.info("companion serving on 0.0.0.0:%d  UI: %s://localhost:%d",
+                      port, scheme, port)
 
         # graceful shutdown
         stop = self._stop_event
@@ -171,6 +234,9 @@ class App:
         self.discovery.stop()
         self.transfers.stop()
         self.monitor.stop()
+        self.mobile.stop()
+        self.alerts.stop()
+        self.automation.stop()
         if self.server:
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             try:
@@ -219,6 +285,9 @@ class App:
 
     def serve_index(self, req) -> Response:
         return self._serve_file(os.path.join(self.web_dir, "index.html"))
+
+    def serve_mobile(self, req) -> Response:
+        return self._serve_file(os.path.join(self.web_dir, "mobile.html"))
 
     def serve_static(self, req) -> Response:
         rel = req.path.lstrip("/")
@@ -458,7 +527,17 @@ class App:
         peer = self.registry.get(req.params[""])
         if peer is None or not peer.addresses:
             return error_response(404, "no_peer", "Unknown device or address")
-        result = self.discovery._probe_one(peer.addresses[0])
+        # v1.3.1 defect fix: probe the PEER'S actual api_port.  The previous
+        # code probed the local port on the peer's address first, which on
+        # same-host multi-companion setups falsely matched THIS device
+        # ("is THIS device") and never refreshed the peer's identity —
+        # hosted mobile clients then never reached the fleet.
+        result = self.discovery._probe_one(peer.addresses[0],
+                                           port=peer.api_port)
+        # deterministic fleet refresh path (also used by tests and by
+        # networks where UDP broadcast is blocked): a probe may have just
+        # revealed hosted mobile clients — let queued messages retry now
+        self.chat.on_fleet_update()
         return json_response({"ok": True, **result})
 
     def radar_sweep(self, req) -> Response:
@@ -817,6 +896,303 @@ class App:
 
     def chat_group_delete(self, req) -> Response:
         self.chat.delete_group(req.params[""])
+        return json_response({"ok": True})
+
+    # -- chat 2.0: mutations, receipts, files ----------------------------
+    def chat_mutate(self, req) -> Response:
+        body = req.json() or {}
+        mut = body.get("mutation") or {}
+        return json_response({"ok": True,
+                              **self.chat.apply_remote_mutation(mut)})
+
+    def chat_react(self, req) -> Response:
+        body = req.json() or {}
+        result = self.chat.toggle_reaction(body.get("msg_id", ""),
+                                           body.get("emoji", ""))
+        return json_response({"ok": True, **result})
+
+    def chat_edit(self, req) -> Response:
+        body = req.json() or {}
+        result = self.chat.edit_message(body.get("msg_id", ""),
+                                        body.get("body", ""))
+        return json_response({"ok": True, **result})
+
+    def chat_delete_msg(self, req) -> Response:
+        body = req.json() or {}
+        result = self.chat.delete_message(body.get("msg_id", ""))
+        return json_response({"ok": True, **result})
+
+    def chat_ack_delivery(self, req) -> Response:
+        body = req.json() or {}
+        result = self.chat.ack_delivery(body.get("reader", ""),
+                                        body.get("ids") or [],
+                                        body.get("state", "delivered"),
+                                        body.get("reader_kind", "computer"))
+        return json_response({"ok": True, **result})
+
+    def chat_file_session(self, req) -> Response:
+        body = req.json() or {}
+        result = self.chat.files.create_session(body.get("name", ""),
+                                                int(body.get("size") or 0),
+                                                body.get("mime", ""))
+        return json_response({"ok": True, **result})
+
+    def chat_file_chunk(self, req) -> Response:
+        result = self.chat.files.append(req.params[""], req.body_iter())
+        return json_response({"ok": True, **result})
+
+    def chat_file_finish(self, req) -> Response:
+        body = req.json() or {}
+        meta = self.chat.files.finalize(req.params[""],
+                                        body.get("sha256", ""))
+        self.events.emit("system",
+                         f"Chat attachment stored: {meta['name']} "
+                         f"({meta['size']} bytes)")
+        return json_response({"ok": True, "file": meta})
+
+    def chat_file_cancel(self, req) -> Response:
+        return json_response({"ok": True,
+                              **self.chat.files.cancel(req.params[""])})
+
+    def chat_file_download(self, req) -> Response:
+        fh, size, name, mime, digest = self.chat.files.open(req.params[""])
+        return file_response(fh, size, mime, filename=name,
+                             range_header=req.headers.get("Range", ""))
+
+    # ------------------------------------------------------------------
+    # mobile client handlers (host side)
+    # ------------------------------------------------------------------
+    def mobile_register(self, req) -> Response:
+        body = req.json() or {}
+        body.setdefault("ua", req.headers.get("User-Agent", ""))
+        ident = self.mobile.register(body)
+        me = self.identity()
+        return json_response({
+            "ok": True, "client": ident,
+            "host": {"device_id": me["device_id"], "name": me["name"],
+                     "version": __version__,
+                     "capabilities": me["capabilities"]},
+            "protocol": 2,
+        })
+
+    def mobile_recover(self, req) -> Response:
+        body = req.json() or {}
+        body.setdefault("ua", req.headers.get("User-Agent", ""))
+        ident = self.mobile.recover(body.get("old_client_id", ""), body)
+        return json_response({"ok": True, "client": ident})
+
+    def mobile_heartbeat(self, req) -> Response:
+        body = req.json() or {}
+        return json_response(self.mobile.heartbeat(
+            body.get("client_id", ""), body.get("client_secret", "")))
+
+    def mobile_prefs(self, req) -> Response:
+        body = req.json() or {}
+        return json_response(self.mobile.update_prefs(
+            body.get("client_id", ""), body.get("client_secret", ""),
+            body.get("prefs") or {}))
+
+    def mobile_rename(self, req) -> Response:
+        self._admin_guard(req)
+        body = req.json() or {}
+        # the client id comes from the URL path; the body carries the patch
+        ident = self.mobile.rename(req.params[""],
+                                   body.get("name", ""),
+                                   body.get("icon", ""),
+                                   body.get("device_type", ""))
+        return json_response({"ok": True, "client": ident})
+
+    def mobile_remove(self, req) -> Response:
+        self._admin_guard(req)
+        return json_response(self.mobile.remove(req.params[""]))
+
+    def mobile_clients(self, req) -> Response:
+        me = self.identity()
+        return json_response({
+            "ok": True,
+            "clients": self.mobile.public_list(me["device_id"], me["name"]),
+        })
+
+    def mobile_inbox(self, req) -> Response:
+        body = req.json() or {}
+        cid = body.get("client_id", "")
+        self.mobile._authenticate(cid, body.get("client_secret", ""))
+        msgs = self.chat.mobile_inbox(cid, int(body.get("since_ts") or 0),
+                                      int(body.get("limit") or 300))
+        return json_response({"ok": True, "messages": msgs,
+                              "ts": now_ms()})
+
+    def mobile_chat_send(self, req) -> Response:
+        body = req.json() or {}
+        cid = body.get("client_id", "")
+        self.mobile._authenticate(cid, body.get("client_secret", ""))
+        client = self.mobile.get(cid)
+        sender = {"device_id": cid, "name": client.name or cid,
+                  "kind": "mobile", "host_device_id":
+                  self.identity()["device_id"]}
+        msg = self.chat.send(body.get("to_kind", "direct"),
+                             body.get("to_id", ""),
+                             body.get("body", ""),
+                             body.get("attachment"),
+                             sender=sender,
+                             reply_to=body.get("reply_to", ""))
+        return json_response({"ok": True, "message": msg})
+
+    def mobile_chat_ack(self, req) -> Response:
+        body = req.json() or {}
+        cid = body.get("client_id", "")
+        self.mobile._authenticate(cid, body.get("client_secret", ""))
+        result = self.chat.mobile_ack(cid, body.get("ids") or [],
+                                      body.get("state", "delivered"))
+        return json_response({"ok": True, **result})
+
+    def mobile_chat_mutate(self, req) -> Response:
+        """A hosted phone reacts/edits/deletes one of ITS stored messages."""
+        body = req.json() or {}
+        cid = body.get("client_id", "")
+        self.mobile._authenticate(cid, body.get("client_secret", ""))
+        who = {"device_id": cid}
+        action = body.get("action", "")
+        if action == "react":
+            result = self.chat.toggle_reaction(body.get("msg_id", ""),
+                                               body.get("emoji", ""), who)
+        elif action == "edit":
+            result = self.chat.edit_message(body.get("msg_id", ""),
+                                            body.get("body", ""), who)
+        elif action == "delete":
+            result = self.chat.delete_message(body.get("msg_id", ""), who)
+        else:
+            raise FsError(400, "bad_action", "action must be react|edit|delete")
+        return json_response({"ok": True, **result})
+
+    def mobile_unread(self, req) -> Response:
+        body = req.json() or {}
+        cid = body.get("client_id", "")
+        self.mobile._authenticate(cid, body.get("client_secret", ""))
+        return json_response({"ok": True,
+                              "unread": self.chat.mobile_unread(
+                                  cid, body.get("read_marks") or {})})
+
+    def mobile_stream(self, req) -> Response:
+        """Dedicated SSE stream filtered to one mobile client's events."""
+        cid = req.q("client_id", "")
+        secret = req.q("secret", "")
+        self.mobile._authenticate(cid, secret)
+        def gen(wfile):
+            client_id, q = self.sse.subscribe("mobile")
+            unsubscribe_all = [lambda: self.sse.unsubscribe("mobile", q)]
+            try:
+                wfile.write(b"retry: 3000\n\n")
+                wfile.flush()
+                import queue as _q
+                while True:
+                    try:
+                        topic, data = q.get(timeout=15.0)
+                        if isinstance(data, dict) and \
+                                data.get("for") not in (None, cid):
+                            continue      # another client's payload
+                        wfile.write(self.sse.format_event(topic, data))
+                        wfile.flush()
+                    except _q.Empty:
+                        wfile.write(b": keepalive\n\n")
+                        wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                for fn in unsubscribe_all:
+                    fn()
+        resp = Response(200)
+        resp.sse = gen
+        return resp
+
+    # ------------------------------------------------------------------
+    # discovery diagnostics (v1.3.0)
+    # ------------------------------------------------------------------
+    def discovery_diagnostics(self, req) -> Response:
+        return json_response({"ok": True,
+                              **self.discovery.diagnostics()})
+
+    # ------------------------------------------------------------------
+    # monitoring alerts (v1.3.0)
+    # ------------------------------------------------------------------
+    def alerts_list(self, req) -> Response:
+        return json_response({"ok": True, "rules": self.alerts.list_rules(),
+                              "history": self.alerts.history()})
+
+    def alerts_set(self, req) -> Response:
+        self._admin_guard(req)
+        body = req.json() or {}
+        rule = self.alerts.upsert_rule(body.get("rule") or {})
+        return json_response({"ok": True, "rule": rule})
+
+    def alerts_delete(self, req) -> Response:
+        self._admin_guard(req)
+        return json_response(self.alerts.delete_rule(req.params[""]))
+
+    # ------------------------------------------------------------------
+    # automation: watched folders + scheduled jobs (v1.3.0)
+    # ------------------------------------------------------------------
+    def automation_list(self, req) -> Response:
+        return json_response({"ok": True, "jobs": self.automation.list_jobs()})
+
+    def automation_set(self, req) -> Response:
+        self._admin_guard(req)
+        body = req.json() or {}
+        job = self.automation.upsert_job(body.get("job") or {})
+        return json_response({"ok": True, "job": job})
+
+    def automation_delete(self, req) -> Response:
+        self._admin_guard(req)
+        return json_response(self.automation.delete_job(req.params[""]))
+
+    def automation_control(self, req) -> Response:
+        self._admin_guard(req)
+        body = req.json() or {}
+        return json_response(self.automation.control(
+            req.params[""], body.get("action", ""), self))
+
+    def automation_preview(self, req) -> Response:
+        body = req.json() or {}
+        return json_response({"ok": True,
+                              **self.automation.preview(body, self)})
+
+    # ------------------------------------------------------------------
+    # storage view (v1.3.0): filtered / physical / all mounts
+    # ------------------------------------------------------------------
+    def storage_view(self, req) -> Response:
+        view = req.q("view") or self.config.get("storage_view") or "useful"
+        return json_response({"ok": True, "view": view,
+                              "mounts": self.monitor.mounts(view),
+                              "gpu": self.monitor.gpu_info(),
+                              "cpu": self.monitor.cpu_topology()})
+
+    # ------------------------------------------------------------------
+    # media party (v1.3.0): synchronized-ish group playback
+    # ------------------------------------------------------------------
+    def media_party(self, req) -> Response:
+        body = req.json() or {}
+        play_at = int(body.get("play_at") or (now_ms() + 3000))
+        spec = {
+            "kind": body.get("kind", "preset"),   # preset | tone | file
+            "name": body.get("name", ""),
+            "freq": body.get("freq", 440),
+            "duration": body.get("duration", 1.0),
+            "waveform": body.get("waveform", "sine"),
+            "volume": min(float(body.get("volume", 0.6)),
+                          float(self.config.get("audio_max_volume") or 0.8)),
+            "play_at": play_at,
+            "party_id": body.get("party_id") or ("party_" + uuid.uuid4().hex[:8]),
+        }
+        self.sse.publish("media_party", spec)
+        self.events.emit("audio_playback",
+                         f"Media Party: {spec['kind']} '{spec['name']}' "
+                         f"scheduled across the fleet")
+        return json_response({"ok": True, "spec": spec})
+
+    def party_stop(self, req) -> Response:
+        self.sse.publish("media_party", {"kind": "stop",
+                                         "party_id": req.json().get(
+                                             "party_id", "") if req.json() else ""})
         return json_response({"ok": True})
 
     # ------------------------------------------------------------------

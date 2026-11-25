@@ -52,6 +52,8 @@ async function boot() {
   live.connect();
   wireLive();
   wireShell();
+  wirePalette();
+  registerServiceWorker();
   bootBar.style.width = '100%';
   maybeFirstRunWizard();
   setTimeout(() => {
@@ -126,6 +128,118 @@ function wireLive() {
   live.on('intercom', (chunk) => {
     window.dispatchEvent(new CustomEvent('pn-intercom', { detail: chunk }));
   });
+  live.on('mobile', (ev) => {
+    // hosted mobile clients came online / registered / renamed
+    state.loadPeers().then(updatePeerPill).catch(() => {});
+  });
+  live.on('alert', (alert) => {
+    if (!alert) return;
+    toast(`🔔 ${alert.text}`, alert.severity === 'error' ? 'err' : 'warn', 6000);
+    if (alert.sound) playAlertCue();
+    window.dispatchEvent(new CustomEvent('pn-alert', { detail: alert }));
+  });
+  live.on('media_party', (spec) => {
+    window.dispatchEvent(new CustomEvent('pn-media-party', { detail: spec }));
+  });
+}
+
+/* ---------------- Media Party local scheduler (v1.3.0) ----------------
+   Every browser connected to a companion schedules the common play_at
+   instant against its measured clock offset. Honest limits: ±0.1–0.3 s
+   across typical LAN browsers; NOT sample-accurate. Volume is capped at
+   the companion-side amplitude limit and playback is fully visible. */
+const PARTY_SOUNDS = {
+  red_alert: '/sounds/pn-red_alert.wav',
+  incoming_transmission: '/sounds/pn-incoming_transmission.wav',
+  device_connected: '/sounds/pn-device_connected.wav',
+  device_disconnected: '/sounds/pn-device_disconnected.wav',
+  transfer_complete: '/sounds/pn-transfer_complete.wav',
+  warning: '/sounds/pn-warning.wav',
+  morse_notification: '/sounds/pn-morse_notification.wav',
+  scifi_chirp: '/sounds/pn-scifi_chirp.wav',
+};
+let partyOffsetMs = null;
+let partyAudio = null;
+let partyOsc = null;
+
+async function measurePartyOffset() {
+  const t0 = Date.now();
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store' });
+    const data = await r.json();
+    const rtt = Date.now() - t0;
+    partyOffsetMs = data.ts + Math.round(rtt / 2) - Date.now();
+  } catch { partyOffsetMs = null; }
+}
+setInterval(measurePartyOffset, 30000);
+measurePartyOffset();
+
+window.addEventListener('pn-media-party', (ev) => {
+  const spec = ev.detail || {};
+  if (spec.kind === 'stop') {
+    try { if (partyAudio) { partyAudio.pause(); partyAudio = null; } } catch {}
+    try { if (partyOsc) { partyOsc.stop(); partyOsc = null; } } catch {}
+    return;
+  }
+  if (!spec.play_at) return;
+  const localAt = partyOffsetMs === null
+    ? Date.now() + 2500                      // no offset measured: approximate
+    : spec.play_at - partyOffsetMs;
+  const delay = Math.max(0, localAt - Date.now());
+  const vol = Math.min(0.8, Math.max(0, Number(spec.volume ?? 0.6)));
+  setTimeout(() => {
+    try {
+      if (spec.kind === 'tone') {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = spec.waveform || 'sine';
+        o.frequency.value = Math.min(20000, Math.max(20, Number(spec.freq || 440)));
+        g.gain.value = vol;
+        o.start();
+        partyOsc = o;
+        setTimeout(() => { try { o.stop(); } catch {} }, Math.min(30000, (spec.duration || 1) * 1000));
+      } else if (spec.kind === 'preset' && PARTY_SOUNDS[spec.name]) {
+        partyAudio = new Audio(PARTY_SOUNDS[spec.name]);
+        partyAudio.volume = vol;
+        partyAudio.play().catch(() => { /* autoplay policy: user must interact once */ });
+      }
+    } catch { /* audio unavailable on this browser */ }
+  }, delay);
+  toast(`🎉 Media Party: ${spec.name || 'tone'} at ${new Date(spec.play_at).toLocaleTimeString()} (offset ${partyOffsetMs ?? '?'} ms)`, 'info');
+});
+
+/* short two-tone cue for alert rules that opted into sound */
+let audioCtx2 = null;
+function playAlertCue() {
+  try {
+    audioCtx2 = audioCtx2 || new (window.AudioContext || window.webkitAudioContext)();
+    const now = audioCtx2.currentTime;
+    [660, 990].forEach((freq, i) => {
+      const o = audioCtx2.createOscillator();
+      const g = audioCtx2.createGain();
+      o.connect(g); g.connect(audioCtx2.destination);
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, now + i * 0.18);
+      g.gain.exponentialRampToValueAtTime(0.15, now + i * 0.18 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.18 + 0.16);
+      o.start(now + i * 0.18); o.stop(now + i * 0.18 + 0.2);
+    });
+  } catch { /* audio unavailable */ }
+}
+
+/* ---------------- service worker (PWA) ---------------- */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').catch(() => {
+    /* http origin or browser without SW: app keeps working normally */
+  });
+  navigator.serviceWorker.addEventListener('message', (ev) => {
+    if (ev.data?.type === 'sw-updated') {
+      toast('Phantom Network updated — reload to get the new version', 'ok', 8000);
+    }
+  });
 }
 
 export function updateChatBadge() {
@@ -152,6 +266,93 @@ function wireShell() {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebar-scrim').classList.add('hidden');
   });
+}
+
+/* ---------------- command palette (Ctrl+K / Cmd+K) ---------------- */
+function wirePalette() {
+  const layer = document.getElementById('palette-layer');
+  const card = document.getElementById('palette-card');
+  let items = [];
+  let sel = 0;
+
+  const open = () => {
+    card.innerHTML = '';
+    const input = el('input', { class: 'palette-input', placeholder: 'Search devices, views, conversations, commands…' });
+    const list = el('div', { class: 'palette-list' });
+    card.appendChild(input);
+    card.appendChild(list);
+    layer.classList.remove('hidden');
+    input.focus();
+    const draw = () => {
+      list.innerHTML = '';
+      items = buildItems(input.value);
+      sel = Math.min(sel, Math.max(0, items.length - 1));
+      items.forEach((item, i) => {
+        const node = el('div', { class: 'palette-item' + (i === sel ? ' sel' : ''),
+          onclick: () => { close(); item.run(); } },
+          el('span', { class: 'pi-ico' }, item.icon),
+          el('span', {}, item.label),
+          el('span', { class: 'pi-hint' }, item.hint || ''));
+        list.appendChild(node);
+      });
+      if (!items.length) list.appendChild(el('div', { class: 'palette-empty' }, 'No matches'));
+    };
+    input.addEventListener('input', draw);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, items.length - 1); draw(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); draw(); e.preventDefault(); }
+      else if (e.key === 'Enter') { const it = items[sel]; if (it) { close(); it.run(); } }
+    });
+    draw();
+  };
+  const close = () => { layer.classList.add('hidden'); card.innerHTML = ''; };
+  layer.addEventListener('mousedown', (e) => { if (e.target === layer) close(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (layer.classList.contains('hidden')) open(); else close();
+    }
+  });
+
+  function buildItems(q) {
+    const needle = (q || '').toLowerCase().trim();
+    const all = [];
+    for (const [name, view] of Object.entries(VIEWS)) {
+      all.push({ icon: '▤', label: 'Go to ' + view.title, hint: 'view', run: () => { location.hash = '#/' + name; } });
+    }
+    for (const p of state.peers) {
+      all.push({
+        icon: p.kind === 'mobile' ? '📱' : (p.os === 'windows' ? '🖥️' : '🐧'),
+        label: p.display_name,
+        hint: p.status + (p.kind === 'mobile' ? ' · mobile client' : ' · companion'),
+        run: () => {
+          location.hash = p.kind === 'mobile' ? '#/chat' : '#/radar';
+          if (p.kind === 'mobile') toast(`Opening GhostChat — conversation with ${p.display_name}`, 'info');
+        },
+      });
+      if (p.participating && p.status === 'online') {
+        all.push({ icon: '◌', label: `Chat with ${p.display_name}`, hint: 'command',
+          run: () => { location.hash = '#/chat'; setTimeout(() => window.dispatchEvent(new CustomEvent('pn-chat-open', { detail: p.device_id })), 400); } });
+      }
+    }
+    all.push({ icon: '📱', label: 'Add Mobile Device (QR code)', hint: 'command', run: () => {
+      location.hash = '#/settings';
+      setTimeout(() => document.querySelector('.panel h3')?.scrollIntoView(), 300);
+    } });
+    all.push({ icon: '◉', label: 'Run subnet sweep (find devices)', hint: 'command', run: () => {
+      api.radarSweep('').then(() => toast('Sweep started — see the Network Radar', 'ok')).catch(e => toast(errText(e), 'err'));
+      location.hash = '#/radar';
+    } });
+    all.push({ icon: '✚', label: 'Run diagnostics self-test', hint: 'command', run: () => {
+      location.hash = '#/diagnostics';
+    } });
+    all.push({ icon: '⇄', label: 'Open Transfer Center', hint: 'view', run: () => { location.hash = '#/transfers'; } });
+    const filtered = needle
+      ? all.filter(x => (x.label + ' ' + x.hint).toLowerCase().includes(needle))
+      : all;
+    return filtered.slice(0, 12);
+  }
 }
 
 /* ---------------- router ---------------- */

@@ -23,6 +23,7 @@ export async function render(container) {
     el('div', { class: 'legend', style: { marginTop: '8px' } },
       legendDot('#a78bfa', 'this device'),
       legendDot('#34d399', 'companion online'),
+      legendDot('#22d3ee', '📱 mobile client online'),
       legendDot('#565f85', 'offline'),
       legendDot('#fbbf24', 'host reachable (not participating)'),
       el('span', { class: 'dim', style: { marginLeft: 'auto' } }, 'animated links = live beacons')));
@@ -36,7 +37,11 @@ export async function render(container) {
           el('option', { value: 'all' }, 'All devices'),
           el('option', { value: 'online' }, 'Online companions'),
           el('option', { value: 'offline' }, 'Offline'),
-          el('option', { value: 'new' }, 'Newly discovered'))),
+          el('option', { value: 'new' }, 'Newly discovered'),
+          el('option', { value: 'computers' }, 'Computers'),
+          el('option', { value: 'mobile' }, '📱 Mobile clients')),
+        el('input', { id: 'radar-search', placeholder: 'search…', style: { maxWidth: '120px' },
+          oninput: () => { selected = null; drawList(); } })),
       el('span', { id: 'radar-count', class: 'badge' })));
 
   const details = el('div', {});
@@ -60,15 +65,41 @@ export async function render(container) {
     const self = state.self;
     const list = [{ id: 'self', name: self?.name || 'This device', self: true, status: 'online', os: self?.os }];
     const filter = document.getElementById('radar-filter')?.value || 'all';
+    const search = (document.getElementById('radar-search')?.value || '').toLowerCase().trim();
     for (const p of state.peers) {
       const isNew = Date.now() - (p.first_seen || 0) < 60000;
       if (filter === 'online' && p.status !== 'online') continue;
       if (filter === 'offline' && p.status === 'online') continue;
       if (filter === 'new' && !isNew) continue;
+      if (filter === 'mobile') continue;          // computers hidden in mobile view
+      if (search && !(p.display_name || p.name || '').toLowerCase().includes(search)
+          && !(p.host || '').toLowerCase().includes(search)) continue;
       list.push({ id: p.device_id, name: p.display_name || p.name, peer: p, status: p.status,
                   os: p.os, participating: p.participating });
+      // v1.3.0: mobile clients hosted by this companion are distinct nodes
+      for (const mc of (p.mobile_clients || [])) {
+        if (search && !(mc.name || '').toLowerCase().includes(search)) continue;
+        list.push({ id: mc.client_id, name: mc.name || mc.client_id,
+                    status: mc.online ? 'online' : 'offline',
+                    kind: 'mobile', host_id: p.device_id,
+                    peer: mobilePeerView(mc, p) });
+      }
     }
     return list;
+  }
+
+  function mobilePeerView(mc, hostPeer) {
+    return {
+      device_id: mc.client_id, display_name: mc.name || mc.client_id,
+      name: mc.name || mc.client_id, kind: 'mobile', mobile: true,
+      status: mc.online ? 'online' : 'offline',
+      host_name: hostPeer.display_name, host_device_id: hostPeer.device_id,
+      device_type: mc.device_type, icon: mc.icon,
+      last_seen: mc.last_seen, first_seen: mc.first_seen,
+      addresses: [], version: null,
+      participating: true, manual: false,
+      capabilities: mc.capabilities || {},
+    };
   }
 
   function drawMap() {
@@ -140,6 +171,7 @@ export async function render(container) {
         : online ? 'rgba(52,211,153,0.18)' : 'rgba(86,95,133,0.15)';
       ctx.fill();
       ctx.strokeStyle = n.self ? '#a78bfa'
+        : n.kind === 'mobile' ? (online ? '#22d3ee' : '#565f85')
         : online ? '#34d399' : '#565f85';
       ctx.lineWidth = isSel ? 3 : 1.6;
       if (isSel) { ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = 14; }
@@ -235,13 +267,40 @@ export async function render(container) {
             `${p.host || '?'} · ${p.addresses?.[0] || 'no address'} · v${p.version || '?'}`))),
       el('div', { class: 'd-meta' },
         el('span', { class: `badge ${online ? 'on' : 'off'}` }, online ? 'ONLINE' : 'OFFLINE'),
-        p.participating ? el('span', { class: 'badge vio' }, 'COMPANION') : el('span', { class: 'badge warn' }, 'NOT PARTICIPATING'),
+        p.mobile ? el('span', { class: 'badge cyan' }, '📱 MOBILE CLIENT')
+          : p.participating ? el('span', { class: 'badge vio' }, 'COMPANION')
+          : el('span', { class: 'badge warn' }, 'NOT PARTICIPATING'),
         isNew ? el('span', { class: 'badge cyan' }, 'NEW') : null,
         p.os ? el('span', { class: 'badge' }, p.os) : null,
+        capabilityBadges(p),
         p.latency_ms != null ? el('span', { class: 'badge cyan' }, `${p.latency_ms.toFixed(0)} ms`) : null,
         p.uptime_s != null ? el('span', { class: 'badge' }, `up ${fmtUptime(p.uptime_s)}`) : null,
         p.group ? el('span', { class: 'badge vio' }, p.group) : null));
     return card;
+  }
+
+  function capabilityBadges(p) {
+    const caps = p.capabilities || {};
+    const badges = [];
+    const push = (ok, label, title) => {
+      if (ok === true) badges.push(el('span', { class: 'badge vio', title }, label));
+      else if (ok === false) badges.push(el('span', { class: 'badge off', title }, label));
+      // undefined = unknown (older peer): no badge, honest
+    };
+    push(caps.shares, 'SHARES', 'authorized directories shared');
+    push(caps.chat, 'CHAT', 'GhostChat participant');
+    push(caps.audio, 'AUDIO', 'plays remote audio commands');
+    push(caps.intercom, 'INTERCOM', 'intercom relay available');
+    push(caps.mobile_host, 'HOSTS PHONES', 'relays mobile clients');
+    push(caps.monitoring, 'TELEMETRY', 'reports hardware telemetry');
+    if (p.mobile_clients?.length) {
+      badges.push(el('span', { class: 'badge cyan', title: 'registered phones' },
+        `📱 ${p.mobile_clients.length}`));
+    }
+    if (p.mobile) {
+      badges.push(el('span', { class: 'badge' }, `host: ${p.host_name || '?'}`));
+    }
+    return badges;
   }
 
   function showSelfDetails() {
@@ -273,6 +332,8 @@ export async function render(container) {
       ['Hostname', p.host || '—'],
       ['Address', (p.addresses || [])[0] || '—'],
       ['OS', p.os_full || p.os || '—'],
+      ['Participant kind', p.mobile ? '📱 mobile browser client (independent inbox, hosted by '
+        + (p.host_name || '?') + ')' : 'computer companion'],
       ['Companion', p.self ? 'this browser session' : (p.participating ? `v${p.version} online` : 'no companion')],
       ['Latency', p.latency_ms != null ? `${p.latency_ms.toFixed(1)} ms` : '—'],
       ['Uptime', p.uptime_s != null ? fmtUptime(p.uptime_s) : '—'],
@@ -301,6 +362,14 @@ export async function render(container) {
 
   function deviceMenu(x, y, p) {
     const online = p.status === 'online';
+    if (p.mobile) {
+      contextMenu(x, y, [
+        online && { label: 'Send message', icon: '◌', handler: () => openChat(p) },
+        'sep',
+        { label: 'View client info', icon: '✚', handler: () => showDetails(p) },
+      ].filter(Boolean));
+      return;
+    }
     contextMenu(x, y, [
       online && { label: 'Browse files', icon: '▤', handler: () => openFiles(p) },
       online && { label: 'Send message', icon: '◌', handler: () => openChat(p) },

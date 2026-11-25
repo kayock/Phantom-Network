@@ -151,8 +151,17 @@ def pair():
     shutil.rmtree(b.data_dir, ignore_errors=True)
 
 
+IN_PROGRESS_STATUSES = ("running", "queued", "verifying", "paused", "hashing")
+
+
 def wait_job_done(c: Companion, job_id: str, timeout: float = 60) -> dict:
-    """Poll until the job leaves the active set; returns its final record."""
+    """Poll until the job leaves the active set; returns its final record.
+
+    ``hashing`` is the v1.2.2 asynchronous checksum-preparation phase — a
+    real machine with a cold page cache can legitimately sit there for a
+    while, and on a slow container even small fixtures do.  The helper must
+    wait through it (assertions then check genuine completion, never a
+    transient state)."""
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
@@ -160,7 +169,7 @@ def wait_job_done(c: Companion, job_id: str, timeout: float = 60) -> dict:
         for j in data["jobs"]:
             if j["id"] == job_id:
                 last = j
-                if j["status"] in ("running", "queued", "verifying", "paused"):
+                if j["status"] in IN_PROGRESS_STATUSES:
                     time.sleep(0.3)
                     break
                 return j

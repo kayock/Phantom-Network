@@ -320,3 +320,28 @@ honestly below 6 GB free disk (marked skipped, never claimed).
 | Diagnostics | 8 checks | 15 checks + guide + exportable report |
 | Packaging | missing spec/deb | companion.spec + make-deb.sh + audited installers |
 | Docs | 14 files | 16 files (+REFINEMENT_REPORT, +LOCALFORGE_HANDOFF) |
+
+
+---
+
+# v1.3.0 refinement report (summary)
+
+- Baseline: public v1.2.2 (ac2e72a). Transfer engine preserved byte-for-byte
+  (verified by git diff); async checksum preparation untouched.
+- New capability surfaces are additive: +4 backend modules, +30 routes,
+  +30 frontend client methods, dedicated mobile UI, PWA shell. No existing
+  route changed semantics; config keys are forward-compatible additions.
+- Honest-delivery principle enforced: phone delivery = client ack.
+  Telemetry gaps report "unavailable" (GPU, RAM on limited hosts).
+  PWA caches only static shell. Offline page claims nothing about the fleet.
+- Data safety: migration backs up before touching; automation is additive
+  only and executes exclusively through the verified engine; chat files are
+  size-capped and stored outside user shares.
+- Performance: presence/alerts/automation loops are wait()-driven (no
+  polling storms). SSE topics reuse one connection. Measured in-sandbox:
+  idle companion RSS ≈ 26–30 MB (psutil), +4 daemon threads (presence,
+  automation, alerts, exchange timers — all sleeping). Directory-pull
+  timing A/B against pristine v1.2.2: identical (see TEST_REPORT.md).
+- Environment honesty: sandbox-specific timing quirks are documented in
+  TEST_REPORT.md rather than hidden; unexecuted items (Windows build,
+  phone hardware tests, live screenshots) are listed as pending.

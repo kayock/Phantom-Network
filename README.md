@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.2.2
+# PHANTOM NETWORK v1.3.1
 
 **Cross-Platform LAN Command Center, File Commander & Signal Laboratory**
 
@@ -38,7 +38,7 @@ and no AI model required**.
   **50 GB** with independent SHA-256 checks, pause/resume, and roughly
   **7–9 MiB/s** throughput at about **43–45 MB** companion RSS. External
   volumes (for example a 1 TB ext4 drive) can be authorized as dedicated
-  transfer directories. v1.2.2 fixes cold source-checksum timeouts so huge
+  transfer directories. v1.3.1 fixes cold source-checksum timeouts so huge
   files no longer need a manual hash-cache warm-up before the first pull.
 
 ## Screenshots
@@ -120,3 +120,26 @@ lists the exact commands (`ufw`, `firewalld`, Windows Defender).
 
 MIT — see [LICENSE](LICENSE). All sound presets and artwork are original
 synthesized/vector assets created for this project (no copyrighted material).
+
+
+---
+
+## PHANTOM MOBILE (current release)
+
+Phones and tablets are now **independent participants**: open `/m` (or scan
+the QR in Settings → Add Mobile Device), pick a device name, and the phone
+registers with its own identity, inbox and presence — hosted and relayed by
+a companion, with no phone-side server and no cloud service.
+
+- Mobile interface: bottom navigation, chat, devices, files, voice notes.
+- PWA: installable, offline shell, update detection. `web/sw.js` never
+  caches `/api/**`.
+- GhostChat 2.0 between computers and phones; delivery means the phone
+  acknowledged — not merely that its host received the message.
+- Fleet: All Devices overview, storage views (useful/physical/all),
+  capability badges, discovery diagnostics, peer exchange.
+- Automation: watched folders and scheduled verified copies (additive,
+  never deletes). Monitoring alerts with thresholds, hold time, cooldown.
+- Optional HTTPS for mic/PWA secure contexts (HTTPS_SETUP.md).
+
+See MOBILE_CLIENT_GUIDE.md, UPGRADE_GUIDE.md and CHANGELOG.md.

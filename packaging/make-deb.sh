@@ -6,7 +6,7 @@
 # touches firewalls or user directories beyond its own.
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.2.2
+VERSION=1.3.1
 OUT=dist; PKG="phantom-network_${VERSION}_all"
 STAGE="$OUT/$PKG"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/opt/phantom-network" \
