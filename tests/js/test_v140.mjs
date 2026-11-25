@@ -162,7 +162,7 @@ test('mobile app registers voice/media/clip tabs + SSE voice events', () => {
 });
 test('service worker version bumped + precaches new views', () => {
   const sw = readFileSync(root + 'web/sw.js', 'utf8');
-  assert.ok(/PN_SW_VERSION = 'v1\.4\.0(\.\d+)?'/.test(sw),
+  assert.ok(/PN_SW_VERSION = 'v1\.4\.\d+(\.\d+)?'/.test(sw),
             'SW version not bumped');
   assert.ok(sw.includes('/js/views/voice.js'));
   assert.ok(sw.includes('/js/lib/rtc.js'));

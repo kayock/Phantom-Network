@@ -15,7 +15,7 @@
      a dead stream as "reconnecting" and shows honest last-known data.
    ============================================================ */
 
-const PN_SW_VERSION = 'v1.4.0.1';
+const PN_SW_VERSION = 'v1.4.1';
 const SHELL_CACHE = `pn-shell-${PN_SW_VERSION}`;
 const ASSET_CACHE = `pn-assets-${PN_SW_VERSION}`;
 

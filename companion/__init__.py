@@ -12,7 +12,7 @@ tablets register with their host companion as first-class logical
 participants with their own identity, inbox and presence.
 """
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __product__ = "Phantom Network"
 
 # Protocol 2 introduces the mobile-client identity fields (``kind``,

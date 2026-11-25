@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.4.0
+# PHANTOM NETWORK v1.4.1
 
 **Cross-Platform LAN Command Center, File Commander & Signal Laboratory**
 

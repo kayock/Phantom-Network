@@ -343,9 +343,20 @@ def register_routes(api) -> None:
     r.add("POST", r"/api/clipboard/relay", _c_err(
         lambda req: api.clipboard.relay(req.json() or {})), auth=False)
     r.add("POST", r"/api/clipboard/os-copy", _c_err(
-        lambda req: json_response(
-            {"ok": api.clipboard.os_copy(str((req.json() or {})
-                                             .get("text") or ""))})))
+        lambda req: {"ok": api.clipboard.os_copy(
+            str((req.json() or {}).get("text") or ""))}))
+    r.add("GET", r"/api/clipboard/os-paste", _c_err(
+        lambda req: {
+            "ok": True,
+            "text": api.clipboard.os_paste() or "",
+            "helper": (api.clipboard._active_helper() or (None,))[0],
+        }))
+    r.add("POST", r"/api/clipboard/os-paste", _c_err(
+        lambda req: {
+            "ok": True,
+            "text": api.clipboard.os_paste() or "",
+            "helper": (api.clipboard._active_helper() or (None,))[0],
+        }))
     r.add("POST", r"/api/clipboard/settings", _c_err(
         lambda req: api.clipboard_settings(req.json() or {})))
 

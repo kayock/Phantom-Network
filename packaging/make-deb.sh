@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# PHANTOM NETWORK v1.4.0 — Debian/Ubuntu .deb builder
+# PHANTOM NETWORK v1.4.1 — Debian/Ubuntu .deb builder
 # Run on a Debian-based host:  bash packaging/make-deb.sh   →  dist/*.deb
 # The package installs to /opt/phantom-network, ships the desktop launcher
 # for the CURRENT user at post-install (see maintainer script), and never
 # touches firewalls or user directories beyond its own.
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.4.0
+VERSION=1.4.1
 OUT=dist; PKG="phantom-network_${VERSION}_all"
 STAGE="$OUT/$PKG"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/opt/phantom-network" \
@@ -45,6 +45,15 @@ cat > /usr/bin/phantom-network <<'RUN'
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/phantom-network"
 DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/phantom-network"
 mkdir -p "$STATE_DIR" "$DATA_DIR"
+export PATH="$HOME/.local/bin:$HOME/.local/opt/pn-helpers/wl-clipboard/usr/bin:$PATH"
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl --user show-environment 2>/dev/null | while IFS= read -r line; do
+    case "$line" in
+      WAYLAND_DISPLAY=*|DISPLAY=*|XDG_RUNTIME_DIR=*|DBUS_SESSION_BUS_ADDRESS=*|XDG_SESSION_TYPE=*)
+        export "$line" ;;
+    esac
+  done
+fi
 PY=/usr/bin/python3
 if [ -x /opt/phantom-network/venv/bin/python3 ]; then
   PY=/opt/phantom-network/venv/bin/python3

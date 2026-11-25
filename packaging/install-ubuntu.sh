@@ -83,7 +83,7 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-echo "Installing Phantom Network v1.4.0 from $SRC → $DEST"
+echo "Installing Phantom Network v1.4.1 from $SRC → $DEST"
 mkdir -p "$DEST"
 rm -rf "$DEST/companion" "$DEST/web" "$DEST/packaging" "$DEST/scripts" "$DEST/sounds"
 cp -r "$SRC/companion" "$SRC/web" "$DEST/"
@@ -140,6 +140,18 @@ DATA_DIR="\${XDG_CONFIG_HOME:-\$HOME/.config}/phantom-network"
 PROG_DIR="$DEST"
 PY_BIN="$PY_BIN"
 mkdir -p "\$STATE_DIR" "\$DATA_DIR"
+# User-local clipboard helpers (wl-clipboard / xclip) + graphical session
+# env so OS clipboard sync works when the companion is started from a
+# desktop launcher (and still recovers session vars if started over SSH).
+export PATH="\$HOME/.local/bin:\$HOME/.local/opt/pn-helpers/wl-clipboard/usr/bin:\$PATH"
+if command -v systemctl >/dev/null 2>&1; then
+  while IFS= read -r line; do
+    case "\$line" in
+      WAYLAND_DISPLAY=*|DISPLAY=*|XDG_RUNTIME_DIR=*|DBUS_SESSION_BUS_ADDRESS=*|XDG_SESSION_TYPE=*)
+        export "\$line" ;;
+    esac
+  done < <(systemctl --user show-environment 2>/dev/null || true)
+fi
 if ! curl -sf http://127.0.0.1:8415/api/health >/dev/null 2>&1; then
   (cd "\$PROG_DIR" && nohup "\$PY_BIN" -m companion --data-dir "\$DATA_DIR" \\
       >>"\$STATE_DIR/companion.out" 2>&1 &)

@@ -1,5 +1,5 @@
 /* ============================================================
-   PHANTOM NETWORK — clipboard.js (v1.4.0 steer addition)
+   PHANTOM NETWORK — clipboard.js (v1.4.1)
 
    Phantom Clipboard view:
    * history with search + pinned snippets
@@ -22,8 +22,7 @@ export async function render(container) {
   cleanup();
   let items = [];
   let status = null;
-  let targets = [];
-  const selected = new Set();
+  let selected = new Set();
 
   const searchIn = el('input', { placeholder: 'Search clipboard history…',
     style: { maxWidth: '260px' } });
@@ -45,6 +44,20 @@ export async function render(container) {
   const settingsNote = el('div', { class: 'small dim' }, '');
 
   /* ---------------- data ---------------- */
+  async function loadMobileClients() {
+    try {
+      const r = await api.get('', '/api/mobile/clients');
+      window.__pn_mobile_clients = r.clients || [];
+    } catch {
+      window.__pn_mobile_clients = window.__pn_mobile_clients || [];
+    }
+  }
+
+  async function loadTargets() {
+    await loadMobileClients();
+    renderTargets();
+  }
+
   async function loadAll() {
     try {
       const [s, itemsR] = await Promise.all([
@@ -65,9 +78,10 @@ export async function render(container) {
   function renderStatus() {
     const h = status.helpers || {};
     const helper = Object.keys(h).filter(k => h[k]);
+    const active = status.active_helper ? ` (using ${status.active_helper})` : '';
     syncEl.textContent = `auto-sync ${status.auto_enabled ? 'ON' : 'OFF'} · ` +
       `${status.paused ? 'PAUSED' : 'active'} · ` +
-      (helper.length ? `native helper: ${helper.join('/')}` :
+      (helper.length ? `native helper: ${helper.join('/')}${active}` :
         'no native helper (dashboard-driven only)');
     syncEl.style.color = status.paused ? 'var(--warn)' : 'var(--ok)';
   }
@@ -85,15 +99,15 @@ export async function render(container) {
     targetList.innerHTML = '';
     const me = state.self && state.self.device_id;
     const defs = [];
-    for (const p of state.peers) {
+    for (const p of state.peers || []) {
       if (p.device_id === me || p.status !== 'online') continue;
       defs.push({ kind: 'computer', device_id: p.device_id,
-                  label: '💻 ' + p.display_name });
+                  label: '💻 ' + (p.display_name || p.name || p.device_id) });
     }
     for (const c of window.__pn_mobile_clients || []) {
       defs.push({ kind: 'mobile', client_id: c.client_id,
                   host_device_id: c.host_device_id,
-                  label: '📱 ' + c.name });
+                  label: '📱 ' + (c.name || c.client_id) });
     }
     if (!defs.length) {
       targetList.appendChild(el('span', { class: 'dim small' },
@@ -135,11 +149,13 @@ export async function render(container) {
               await navigator.clipboard.writeText(it.text);
               toast('Copied to browser clipboard', 'ok');
             } catch {
-              const ok = await api.post('', '/api/clipboard/os-copy',
-                { text: it.text });
-              toast(ok.ok ? 'Copied via native helper'
-                : 'Browser blocked clipboard write — no native helper '
-                  + 'available either', ok.ok ? 'ok' : 'err');
+              try {
+                const ok = await api.post('', '/api/clipboard/os-copy',
+                  { text: it.text });
+                toast(ok.ok ? 'Copied via native helper'
+                  : 'Browser blocked clipboard write — no native helper '
+                    + 'available either', ok.ok ? 'ok' : 'err');
+              } catch (e) { toast(errText(e), 'err'); }
             }
           }
         } }, '⧉ copy');
@@ -189,29 +205,38 @@ export async function render(container) {
         data_url: latest.data_url || '', name: latest.name || '',
         targets: t,
       });
-      const ok = r.results.filter(x => x.state !== 'unavailable').length;
-      toast(`Sent to ${ok}/${r.results.length} device(s)` +
+      const ok = (r.results || []).filter(x => x.state !== 'unavailable').length;
+      toast(`Sent to ${ok}/${(r.results || []).length} device(s)` +
         (r.note ? ` — ${r.note}` : ''), ok ? 'ok' : 'info');
+      await loadAll();
     } catch (e) { toast(errText(e), 'err'); }
   };
 
   pasteOsBtn.onclick = async () => {
-    const text = status && status.helpers ? null : null;
     try {
-      /* browser clipboard first (works without native helpers) */
-      let body = null;
+      let text = '';
       try {
-        body = { kind: 'text', text: await navigator.clipboard.readText() };
+        text = await navigator.clipboard.readText();
       } catch {}
-      if (!body || !body.text) {
-        const r = await api.post('', '/api/clipboard/os-copy', {});
-        toast('Browser clipboard read was blocked and the companion has ' +
-          'no paste helper exposed here', 'err');
+      if (!text) {
+        const r = await api.get('', '/api/clipboard/os-paste');
+        text = (r && r.text) || '';
+      }
+      if (!text) {
+        toast('OS clipboard is empty or no native paste helper is available',
+          'err');
         return;
       }
-      await api.post('', '/api/clipboard/send',
-        { ...body, targets: [{ kind: 'computer',
-          device_id: state.self && state.self.device_id }] });
+      const me = (state.self && state.self.device_id)
+        || (status && status.device_id);
+      if (!me) {
+        toast('Local device id unavailable — cannot store capture', 'err');
+        return;
+      }
+      await api.post('', '/api/clipboard/send', {
+        kind: 'text', text,
+        targets: [{ kind: 'computer', device_id: me }],
+      });
       await loadAll();
       toast('Captured into history', 'ok');
     } catch (e) { toast(errText(e), 'err'); }
@@ -289,7 +314,7 @@ export async function render(container) {
         el('span', { class: 'small dim' }, 'text cap (bytes)'), maxText),
       settingsNote));
 
-  await Promise.all([loadAll(), loadTargets().catch(() => {})]);
+  await Promise.all([loadAll(), loadTargets()]);
   const unPeers = state.on('peers', () => renderTargets());
   const refresh = setInterval(loadAll, 8000);
   cleanupFns.push(unPeers, () => clearInterval(refresh));

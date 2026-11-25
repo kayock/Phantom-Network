@@ -1260,6 +1260,10 @@ class App:
         for k, cast in allowed.items():
             if k in body:
                 self.config.set(k, cast(body[k]))
+        # Start the auto-sync poller when the user enables it without a
+        # companion restart (v1.4.1).  Disabling simply skips ticks.
+        if body.get("clipboard_auto_enabled"):
+            self.clipboard.ensure_auto_sync()
         return {"ok": True, "status": self.clipboard.status()}
 
     def media_stream(self, req) -> Response:

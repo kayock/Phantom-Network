@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.4.1] — Clipboard repair
+
+### Root causes
+- Desktop Clipboard UI called undefined `loadTargets()` (copy-paste from
+  Broadcast), which threw on every open and broke send/target selection.
+- Windows `os_copy` appended the payload as an extra PowerShell argv; 
+  `$input | Set-Clipboard` never received stdin, so native capture/write
+  appeared active but left the OS clipboard unchanged.
+- Ubuntu companions on Wayland had no `wl-clipboard` helper and SSH-started
+  processes lacked `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR`, so Station
+  reported “no native helper”.
+- Enabling auto-sync in Settings did not start the poller until restart.
+- Incoming peer clipboard entries were stored in history but not written
+  to the local OS clipboard, so paste-on-the-other-computer failed.
+
+### Corrections
+- Define `loadTargets()` in `clipboard.js`; add `/api/clipboard/os-paste`;
+  fix “From OS clipboard” to read via helper instead of calling os-copy.
+- Windows clipboard read/write via stdin-piped PowerShell; absolute
+  `powershell.exe` discovery for schtasks contexts.
+- Prefer Wayland helpers when the session is Wayland; resolve helpers from
+  `~/.local/bin` and ship `scripts/install-clipboard-helper.sh` (user-local
+  `.deb` extract, no sudo).
+- Launcher imports graphical session environment from
+  `systemctl --user show-environment`.
+- `ensure_auto_sync()` starts the poller when auto-sync is enabled at
+  runtime; incoming text is applied to the OS clipboard with fanout
+  suppression to prevent sync loops / duplicates.
+- Service worker cache bumped to `v1.4.1`.
+
 ## [1.4.0] — Phantom Signal (voice · broadcast · media · mesh · clipboard)
 
 ### Release hardening (post-zip)

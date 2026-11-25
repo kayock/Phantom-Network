@@ -66,6 +66,18 @@ of v1.2.2 remains valid (the engine is byte-identical).
 
 ---
 
+# Upgrading to v1.4.1 (from v1.4.0)
+
+1. Install/replace the companion as usual (ZIP or existing install script).
+2. On Ubuntu Wayland hosts without a system `wl-clipboard` package, run
+   `bash scripts/install-clipboard-helper.sh` once per machine (user-local,
+   no sudo) so auto-sync can read/write the OS clipboard.
+3. Restart the companion from the desktop launcher (or with session env)
+   so helpers see `WAYLAND_DISPLAY` / `DISPLAY`.
+4. Hard-refresh the dashboard (service worker `v1.4.1`) or reopen the UI.
+5. Privacy toggles (`clipboard_auto_enabled`, pause, private mode) are
+   preserved; re-enable automatic sync only if you want it.
+
 # Upgrading to v1.4.0 (from v1.3.1 / v1.3.2)
 
 ## What the upgrade preserves
