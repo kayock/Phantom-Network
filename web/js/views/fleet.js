@@ -44,6 +44,7 @@ export async function render(container) {
   }
 
   async function refresh() {
+    try {
     await refreshDevices();
     const device = sel.value || 'self';
     body.innerHTML = '';
@@ -64,7 +65,7 @@ export async function render(container) {
         kv('Utilization', fmtPct(m.cpu.percent)),
         kv('Cores', m.cpu.cores ?? '—'),
         kv('Load average', Array.isArray(m.cpu.loadavg) ? m.cpu.loadavg.map(x => x.toFixed(2)).join(' · ') : '—')));
-    cpuPanel.appendChild(sparkEl(device, 'cpu'));
+    cpuPanel.appendChild(await sparkEl(device, 'cpu'));
 
     // Memory
     const mem = m.memory;
@@ -76,7 +77,7 @@ export async function render(container) {
         kv('Available', fmtSize(mem.available)),
         kv('Used', `${fmtSize(mem.used)} (${fmtPct(mem.percent)})`),
         kv('Swap / pagefile', mem.swap_total ? `${fmtSize(mem.swap_used)} / ${fmtSize(mem.swap_total)} (${fmtPct(mem.swap_percent)})` : 'none')));
-    memPanel.appendChild(sparkEl(device, 'mem'));
+    memPanel.appendChild(await sparkEl(device, 'mem'));
 
     // Disks
     const diskPanel = el('div', { class: 'panel' },
@@ -102,7 +103,7 @@ export async function render(container) {
       el('h3', { style: { marginTop: '10px' } }, 'Interfaces'),
       el('div', { class: 'log-view', style: { maxHeight: '90px' } },
         (m.interfaces || []).map(i => `${i.name || 'if'}: ${i.ipv4 || ''} ${i.mac || ''}`).join('\n') || '—'));
-    netPanel.appendChild(sparkEl(device, 'net'));
+    netPanel.appendChild(await sparkEl(device, 'net'));
 
     // System + GPU + process
     const sysPanel = el('div', { class: 'panel' },
@@ -123,6 +124,12 @@ export async function render(container) {
     grid.appendChild(diskPanel);
     grid.appendChild(netPanel);
     body.appendChild(grid);
+    } catch (e) {
+      body.innerHTML = '';
+      body.appendChild(el('div', { class: 'panel' },
+        el('h3', {}, 'Fleet Monitor error'),
+        el('div', { class: 'dim' }, errText(e))));
+    }
   }
 
   function kv(k, v) {
@@ -139,6 +146,10 @@ export async function render(container) {
     } catch { return el('div', { class: 'dim small' }, 'no history yet'); }
   }
 
+  container.appendChild(el('div', { class: 'row', style: { marginBottom: '10px' } },
+    el('span', { class: 'dim small' }, 'Device'), sel));
+  container.appendChild(note);
+  container.appendChild(body);
   sel.addEventListener('change', refresh);
   await refresh();
   const t = setInterval(refresh, 5000);

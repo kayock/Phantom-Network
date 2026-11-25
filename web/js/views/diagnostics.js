@@ -30,7 +30,7 @@ export async function render(container) {
       el('button', { class: 'btn small cyan', onclick: exportReport }, '⇩ Export diagnostic report (JSON, stays local)')),
     el('div', { class: 'kv mt' },
       kv('Product', 'PHANTOM NETWORK'),
-      kv('Version', `v${state.self?.version || '1.1.0'}`),
+      kv('Version', `v${state.self?.version || 'unknown'}`),
       kv('Protocol', 'v1 (UDP beacons + HTTP/1.1 + SSE)'),
       kv('This device', `${state.self?.name} (${state.self?.os_full})`),
       kv('Data directory', state.self?.data_dir || '—'),

@@ -1,6 +1,6 @@
 # DEPLOYMENT.md
 
-Installing and running PHANTOM NETWORK v1.2.0 on Windows 11 and Ubuntu.
+Installing and running PHANTOM NETWORK v1.2.1 on Windows 11 and Ubuntu.
 
 ## 1. Requirements
 

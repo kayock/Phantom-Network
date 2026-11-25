@@ -25,7 +25,7 @@ export async function render(container) {
       el('div', { class: 'kv grow' },
         kv('Device ID', cfg?.device_id || '—'),
         kv('Hostname', state.self?.host || '—'),
-        kv('Version', `v${state.self?.version || '1.0.0'}`))));
+        kv('Version', `v${state.self?.version || 'unknown'}`))));
 
   /* network */
   const discBox = el('input', { type: 'checkbox', checked: !!cfg?.discovery_enabled });

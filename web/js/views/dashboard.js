@@ -36,7 +36,7 @@ export async function render(container) {
         el('div', {},
           el('div', { style: { fontSize: '19px', fontWeight: '800', letterSpacing: '.14em' } }, 'PHANTOM NETWORK'),
           el('div', { class: 'dim small mono', style: { marginTop: '4px' } },
-            `${state.self?.name || ''} · ${state.self?.host || ''} · v${state.self?.version || '1.0.0'} · ${state.self?.os_full || ''}`)),
+            `${state.self?.name || ''} · ${state.self?.host || ''} · v${state.self?.version || 'unknown'} · ${state.self?.os_full || ''}`)),
         el('div', { class: 'row' },
           el('span', { class: 'badge vio' }, `LAN COMMAND CENTER`),
           el('span', { class: 'badge cyan' }, `NO CLOUD · NO ACCOUNTS`)))));

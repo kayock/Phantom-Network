@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.2.0 - Windows installer (run from a NORMAL PowerShell window)
+# PHANTOM NETWORK v1.2.1 - Windows installer (run from a NORMAL PowerShell window)
 #
 # Validation note: this file is checked byte-by-byte for control characters
 # and syntax-sanity by packaging/validate_release.py before every release.

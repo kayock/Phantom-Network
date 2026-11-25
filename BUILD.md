@@ -1,6 +1,6 @@
 # BUILD.md
 
-Building, packaging and verifying PHANTOM NETWORK v1.2.0 from source.
+Building, packaging and verifying PHANTOM NETWORK v1.2.1 from source.
 
 ## 1. Prerequisites
 
@@ -43,13 +43,13 @@ bash packaging/make-dist.sh
 The script:
 
 1. runs a quick source audit (version strings, no leftover dev files),
-2. builds `Phantom-Network-v1.2.0.zip` with reproducible timestamps
+2. builds `Phantom-Network-v1.2.1.zip` with reproducible timestamps
    (`SOURCE_DATE_EPOCH` if set),
 3. **extracts the ZIP into a clean directory** and re-runs the test suite
    against the shipped source,
 4. writes `BUILD_LOG.txt` (the actual commands + outputs).
 
-Output: `dist/Phantom-Network-v1.2.0.zip`.
+Output: `dist/Phantom-Network-v1.2.1.zip`.
 
 ## 5. Platform-specific distributables
 
@@ -59,7 +59,7 @@ Output: `dist/Phantom-Network-v1.2.0.zip`.
 | Linux portable `.tar.gz` | any Linux host | `packaging/make-portable-linux.sh` |
 | Windows portable folder | any host | the source tree itself + `portable.marker`; run `packaging\run-phantom-windows.bat` |
 | Windows one-file `.exe` | **Windows host only** | `pip install pyinstaller && pyinstaller --noconfirm --clean packaging/companion.spec` → `dist/PhantomCompanion.exe` (spec ships with the release; a Linux host cannot cross-compile — documented, not claimed) |
-| Ubuntu `.deb` | Debian/Ubuntu host | `bash packaging/make-deb.sh` → `dist/phantom-network_1.1.0_all.deb` |
+| Ubuntu `.deb` | Debian/Ubuntu host | `bash packaging/make-deb.sh` → `dist/phantom-network_1.2.1_all.deb` |
 
 ## 6. Reproducibility notes
 

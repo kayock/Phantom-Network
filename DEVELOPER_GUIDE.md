@@ -1,6 +1,6 @@
 # DEVELOPER_GUIDE.md
 
-Developing, testing and extending PHANTOM NETWORK v1.2.0.
+Developing, testing and extending PHANTOM NETWORK v1.2.1.
 
 ## 1. Development setup
 
@@ -47,7 +47,7 @@ See ARCHITECTURE.md §2 for the module map. Conventions:
   module exports `async render(container) → cleanup|null`. State flows
   through `state.js`; API calls through `api.js`.
 * Versioning: `companion/__init__.py` is the single source of
-  `__version__` (`1.0.0`); the sidebar and `/api/health` read it.
+  `__version__` (`1.2.1`); the sidebar and `/api/health` read it.
 
 ## 3. Testing
 

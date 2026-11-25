@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PHANTOM NETWORK v1.2.0 — Ubuntu installer
+# PHANTOM NETWORK v1.2.1 — Ubuntu installer
 #
 # Safety properties (audited):
 #   * installs ONLY into /opt/phantom-network and the invoking user's
@@ -16,13 +16,74 @@ set -e
 # on a real system keep the default.
 DEST="${PN_DEST:-/opt/phantom-network}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
-[ "$(id -u)" -eq 0 ] || { echo "Run with sudo."; exit 1; }
 
-# --- user-owned runtime locations (XDG; never inside $DEST) ---
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/phantom-network"
-DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/phantom-network"
+# The desktop user is whoever invoked sudo/pkexec, not root. $HOME and
+# XDG_* in a sudo session usually belong to root and must not decide
+# where configuration or logs are created.
+resolve_desktop_user() {
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    printf '%s' "$SUDO_USER"
+    return
+  fi
+  if [ -n "${PKEXEC_UID:-}" ]; then
+    getent passwd "$PKEXEC_UID" | cut -d: -f1
+    return
+  fi
+  local ln
+  ln=$(logname 2>/dev/null || true)
+  if [ -n "$ln" ] && [ "$ln" != "root" ]; then
+    printf '%s' "$ln"
+    return
+  fi
+  printf '%s' "${USER:-}"
+}
 
-echo "Installing Phantom Network v1.1.0 from $SRC → $DEST"
+# Accept an XDG directory only when it belongs to this user. A value
+# inherited from the root installer (for example /root/.config) is ignored
+# and the XDG default under the user's home is used instead.
+xdg_base() {
+  local given="$1" home="$2" fallback="$3"
+  if [ -n "$given" ] && [ "$given" = "$home" -o "${given#"$home"/}" != "$given" ]; then
+    printf '%s' "$given"
+  else
+    printf '%s' "$home/$fallback"
+  fi
+}
+
+U="$(resolve_desktop_user)"
+[ -n "$U" ] && [ "$U" != "root" ] || { echo "Could not resolve the desktop user (refusing to use root's home)."; exit 1; }
+UHOME=$(getent passwd "$U" | cut -d: -f6)
+[ -n "$UHOME" ] && [ -d "$UHOME" ] || { echo "Could not resolve a home directory for $U."; exit 1; }
+
+SESS_CONFIG=""
+SESS_STATE=""
+if command -v runuser >/dev/null 2>&1; then
+  SESS_CONFIG=$(runuser -u "$U" -- systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CONFIG_HOME=//p' | head -1 || true)
+  SESS_STATE=$(runuser -u "$U" -- systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_STATE_HOME=//p' | head -1 || true)
+fi
+CONFIG_BASE=$(xdg_base "${SESS_CONFIG:-${XDG_CONFIG_HOME:-}}" "$UHOME" ".config")
+STATE_BASE=$(xdg_base "${SESS_STATE:-${XDG_STATE_HOME:-}}" "$UHOME" ".local/state")
+STATE_DIR="$STATE_BASE/phantom-network"
+DATA_DIR="$CONFIG_BASE/phantom-network"
+
+if [ "${PN_RESOLVE_ONLY:-0}" = "1" ]; then
+  printf 'user=%s\nhome=%s\nstate=%s\ndata=%s\n' "$U" "$UHOME" "$STATE_DIR" "$DATA_DIR"
+  exit 0
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  if [ "${PN_USER_INSTALL:-0}" != "1" ]; then
+    echo "Run with sudo, or set PN_USER_INSTALL=1 for a user-owned install."
+    exit 1
+  fi
+  # No passwordless sudo on this host. A user-owned program directory
+  # keeps program files separate from runtime data without touching /opt.
+  if [ -z "${PN_DEST:-}" ]; then
+    DEST="$HOME/.local/opt/phantom-network"
+  fi
+fi
+
+echo "Installing Phantom Network v1.2.1 from $SRC → $DEST"
 mkdir -p "$DEST"
 rm -rf "$DEST/companion" "$DEST/web" "$DEST/packaging" "$DEST/scripts" "$DEST/sounds"
 cp -r "$SRC/companion" "$SRC/web" "$DEST/"
@@ -50,8 +111,6 @@ else
 fi
 
 # ---- launcher for the invoking user (defect D fix: touch only our files) ----
-U="${SUDO_USER:-$USER}"
-UHOME=$(getent passwd "$U" | cut -d: -f6)
 APPS_DIR="$UHOME/.local/share/applications"
 BIN_DIR="$UHOME/.local/bin"
 # create ONLY our own subpaths; never chown/chmod existing trees
@@ -74,16 +133,16 @@ LAUNCH
 cat > "$BIN_DIR/phantom-network" <<RUN
 #!/usr/bin/env bash
 # Start the companion (if not already running) and open the command center.
-# Ordinary-user safe: logs go to the XDG state dir, state to the XDG config
-# dir - nothing is ever written into the root-owned $DEST program directory.
-STATE_DIR="$STATE_DIR"
-DATA_DIR="$DATA_DIR"
+# Paths expand when the desktop user launches this script. They are never
+# captured from the root account that ran the installer.
+STATE_DIR="\${XDG_STATE_HOME:-\$HOME/.local/state}/phantom-network"
+DATA_DIR="\${XDG_CONFIG_HOME:-\$HOME/.config}/phantom-network"
 PROG_DIR="$DEST"
 PY_BIN="$PY_BIN"
-mkdir -p "$STATE_DIR" "$DATA_DIR"
+mkdir -p "\$STATE_DIR" "\$DATA_DIR"
 if ! curl -sf http://127.0.0.1:8415/api/health >/dev/null 2>&1; then
-  (cd "$PROG_DIR" && nohup "$PY_BIN" -m companion --data-dir "$DATA_DIR" \
-      >>"$STATE_DIR/companion.out" 2>&1 &)
+  (cd "\$PROG_DIR" && nohup "\$PY_BIN" -m companion --data-dir "\$DATA_DIR" \\
+      >>"\$STATE_DIR/companion.out" 2>&1 &)
   sleep 2
 fi
 xdg-open http://localhost:8415
@@ -93,7 +152,11 @@ chmod 755 "$BIN_DIR/phantom-network"
 chown "$U":"$U" "$APPS_DIR/phantom-network.desktop" "$BIN_DIR/phantom-network" 2>/dev/null || true
 
 # ---- optional autostart (defect E fix: correct unit construction) ----
-read -r -p "Enable auto-start at login (systemd --user)? [y/N] " ANS || ANS=N
+if [ "${PN_NO_AUTOSTART:-0}" = "1" ]; then
+  ANS=N
+else
+  read -r -p "Enable auto-start at login (systemd --user)? [y/N] " ANS || ANS=N
+fi
 if [ "$ANS" = "y" ]; then
   UNIT_DIR="$UHOME/.config/systemd/user"
   mkdir -p "$UNIT_DIR"

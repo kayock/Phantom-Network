@@ -1,4 +1,4 @@
-# PHANTOM NETWORK v1.2.0
+# PHANTOM NETWORK v1.2.1
 
 **Cross-Platform LAN Command Center, File Commander & Signal Laboratory**
 
@@ -6,7 +6,7 @@
 
 Phantom Network turns three or more computers on a private LAN into a
 coordinated fleet: a futuristic browser command center with network radar,
-a dual-pane File Commander across machines, verified 50 GB+ file transfers,
+a dual-pane File Commander across machines, SHA-256 verified file transfers,
 private GhostChat messaging, remote audio playback, push-to-talk intercom,
 and an audio Signal Laboratory — **with no cloud, no accounts, no Docker,
 and no AI model required**.

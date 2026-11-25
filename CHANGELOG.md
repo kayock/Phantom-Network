@@ -2,6 +2,34 @@
 
 All notable changes to PHANTOM NETWORK.
 
+## [1.2.1] — 2026-11-25
+
+Physical-deployment corrections after the Z.ai v1.2.0 archive. Ubuntu
+Station and Ubuntu Portable are the qualified platforms for this release.
+Windows remains unverified.
+
+### Fixed
+
+* **Ubuntu installer runtime ownership.** `install-ubuntu.sh` resolved
+  `$HOME` and `XDG_*` before identifying the desktop user, so a sudo
+  install baked `/root` paths into the launcher. The installer now
+  resolves the invoking user (`SUDO_USER`, `PKEXEC_UID`, then `logname`)
+  and that user's home first, ignores XDG values that are not inside that
+  home, and writes a launcher whose config and log paths expand when the
+  desktop user starts the companion. The Debian package launcher no longer
+  writes `companion.out` into `/opt`.
+* **Read-only shares inside a writable ancestor.** Share authorization
+  used the first matching root. A read-write parent therefore authorized
+  deletion of a file inside a more specific read-only share, including
+  verified deletion. Authorization now uses the longest matching share
+  and prefers the read-only mode when two roots are the same length.
+  A verified move whose source cannot be removed stays `completed_partial`
+  and keeps the source. Fresh-checksum verification is unchanged.
+* **Fleet Monitor view.** The view passed an unresolved history request
+  to `appendChild` and never attached its panels, so the page reported
+  "View failed to load". History is awaited, and the device selector,
+  note and panels are attached to the view.
+
 ## [1.2.0] — 2026-11-25
 
 Final engineering hardening & deployment readiness.

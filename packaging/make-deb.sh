@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# PHANTOM NETWORK v1.1.0 — Debian/Ubuntu .deb builder
+# PHANTOM NETWORK v1.2.1 — Debian/Ubuntu .deb builder
 # Run on a Debian-based host:  bash packaging/make-deb.sh   →  dist/*.deb
 # The package installs to /opt/phantom-network, ships the desktop launcher
 # for the CURRENT user at post-install (see maintainer script), and never
 # touches firewalls or user directories beyond its own.
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.2.0
+VERSION=1.2.1
 OUT=dist; PKG="phantom-network_${VERSION}_all"
 STAGE="$OUT/$PKG"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/opt/phantom-network" \
@@ -38,10 +38,19 @@ if command -v python3 >/dev/null; then
   python3 -m venv /opt/phantom-network/venv >/dev/null 2>&1 || PY=/usr/bin/python3
   [ "$PY" = "/opt/phantom-network/venv/bin/python3" ] && /opt/phantom-network/venv/bin/pip install --quiet psutil >/dev/null 2>&1 || true
 fi
-cat > /usr/bin/phantom-network <<RUN
+cat > /usr/bin/phantom-network <<'RUN'
 #!/bin/sh
+# Runtime data follows the user who launches the command, never /opt
+# and never root's home. The program directory stays read-only.
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/phantom-network"
+DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/phantom-network"
+mkdir -p "$STATE_DIR" "$DATA_DIR"
+PY=/usr/bin/python3
+if [ -x /opt/phantom-network/venv/bin/python3 ]; then
+  PY=/opt/phantom-network/venv/bin/python3
+fi
 if ! curl -sf http://127.0.0.1:8415/api/health >/dev/null 2>&1; then
-  (cd /opt/phantom-network && nohup $PY -m companion >>/opt/phantom-network/companion.out 2>&1 &)
+  (cd /opt/phantom-network && nohup "$PY" -m companion --data-dir "$DATA_DIR" >>"$STATE_DIR/companion.out" 2>&1 &)
   sleep 2
 fi
 exec xdg-open http://localhost:8415

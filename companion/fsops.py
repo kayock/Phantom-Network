@@ -58,7 +58,7 @@ class PathSandbox:
                 "label": s.get("label") or os.path.basename(s.get("path", "")) or s.get("path", ""),
                 "mode": s.get("mode", "rw"),
             })
-        if self._config.get("share_home_rw", True):
+        if self._config.get("share_home_rw", False):
             home = os.path.expanduser("~")
             if home and not any(s["path"] == home for s in out):
                 out.insert(0, {"path": home, "label": "Home", "mode": "rw"})
@@ -75,14 +75,25 @@ class PathSandbox:
         path = os.path.expanduser(str(path))
         path = self._normalize(path)
         real = os.path.realpath(path)
+        # The most specific containing share decides the mode. An ancestor
+        # read-write share must not grant deletion inside a nested read-only
+        # share. Equal-length matches prefer the more restrictive mode.
         matched_mode = None
         matched_root = None
+        best_len = -1
         for share in self.shares():
             root_real = os.path.realpath(share["path"])
-            if self._inside(root_real, real):
-                matched_mode = share["mode"]
+            if not root_real or not self._inside(root_real, real):
+                continue
+            length = len(root_real.rstrip("\\/"))
+            mode = share.get("mode") or "rw"
+            more_specific = length > best_len
+            same_and_stricter = (
+                length == best_len and mode != "rw" and matched_mode == "rw")
+            if more_specific or same_and_stricter:
+                best_len = length
+                matched_mode = mode
                 matched_root = root_real
-                break
         if matched_mode is None:
             roots = "; ".join(f"{s['path']} ({s['mode']})" for s in self.shares())
             raise FsError(403, "outside_shares",

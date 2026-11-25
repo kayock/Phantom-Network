@@ -1,7 +1,7 @@
 # LOCALFORGE_HANDOFF.md
 
 Hand-off document for **LocalForge**, the local multi-agent development
-platform that maintains PHANTOM NETWORK from **v1.2.0** onward.
+platform that maintains PHANTOM NETWORK from **v1.2.1** onward.
 
 Purpose: let a small coding model work on **one component** with only this
 document plus the component's source file — without loading the whole
@@ -23,7 +23,7 @@ State lives in JSON files under a per-machine data directory.
 
 ```
 companion/            Python package — the ENTIRE backend (run: python -m companion)
-  __init__.py         __version__ ("1.1.0") + ports (single source of version truth)
+  __init__.py         __version__ ("1.2.1") + ports (single source of version truth)
   __main__.py         entry point
   app.py              App wiring: one class, one method per REST handler
   routes.py           route table (METHOD, regex) — read this to find endpoints

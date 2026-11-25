@@ -1,4 +1,4 @@
-# CURSOR_DEPLOYMENT_HANDOFF.md — PHANTOM NETWORK v1.2.0
+# CURSOR_DEPLOYMENT_HANDOFF.md — PHANTOM NETWORK v1.2.1
 
 Field guide for installing and verifying Phantom Network on **three
 physical computers**:
@@ -55,7 +55,7 @@ touch /opt/phantom-network/probe 2>&1 | grep -q "Permission denied" \
   && echo "OK: program dir is read-only for users"
 ~/.local/bin/phantom-network                    # must start WITHOUT sudo
 sleep 3
-curl -s http://127.0.0.1:8415/api/health        # {"ok": true, "version": "1.2.0"}
+curl -s http://127.0.0.1:8415/api/health        # {"ok": true, "version": "1.2.1"}
 ls ~/.local/state/phantom-network/              # companion.out lives HERE, not in /opt
 find /opt/phantom-network -newer ~/.local/bin/phantom-network -type f
 #   → must print NOTHING: zero writes into the program directory
