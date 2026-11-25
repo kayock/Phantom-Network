@@ -20,12 +20,12 @@ import urllib.request
 from pathlib import Path
 
 STATION = "http://127.0.0.1:8415"
-PORTABLE_LAN = "http://10.0.0.45:8415"
+PORTABLE_LAN = "http://<portable-host>:8415"
 STATION_LAB = Path.home() / "phantom-network-lab"
-PORTABLE_LAB = "/home/kayock/phantom-network-lab"
+PORTABLE_LAB = "<phantom-network-lab>"
 SSH = [
     "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-    "-o", "ClearAllForwardings=yes", "kayock@10.0.0.45",
+    "-o", "ClearAllForwardings=yes", "<user>@<portable-host>",
 ]
 RESULTS = {}
 
@@ -84,10 +84,10 @@ def portable_local(method, path, body=None, timeout=120):
         scp = ["scp", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
                "-o", "ClearAllForwardings=yes"]
         subprocess.check_call(
-            scp + [str(req_path), f"kayock@10.0.0.45:{remote_req}"],
+            scp + [str(req_path), f"<user>@<portable-host>:{remote_req}"],
             stdout=subprocess.DEVNULL)
         subprocess.check_call(
-            scp + [str(run_path), f"kayock@10.0.0.45:{remote_run}"],
+            scp + [str(run_path), f"<user>@<portable-host>:{remote_run}"],
             stdout=subprocess.DEVNULL)
         try:
             proc = subprocess.run(
@@ -181,7 +181,7 @@ def portable_write(path: str, size: int, seed: str = "PORT"):
     try:
         subprocess.check_call(
             ["scp", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-             "-o", "ClearAllForwardings=yes", local, f"kayock@10.0.0.45:{remote}"],
+             "-o", "ClearAllForwardings=yes", local, f"<user>@<portable-host>:{remote}"],
             stdout=subprocess.DEVNULL)
         subprocess.check_call(SSH + ["python3", remote],
                               stdout=subprocess.DEVNULL)
@@ -244,14 +244,14 @@ def main():
         (p for p in peers_p if p.get("device_id") == station_id), None)
     if portable_peer is None or portable_peer.get("status") != "online":
         http(STATION, "POST", "/api/peers/register",
-             {"address": "10.0.0.45", "port": 8415})
+             {"address": "<portable-host>", "port": 8415})
         time.sleep(2)
         peers_s = http(STATION, "GET", "/api/peers")["peers"]
         portable_peer = next(
             (p for p in peers_s if p.get("device_id") == portable_id), None)
     if station_peer is None or station_peer.get("status") != "online":
         portable_local("POST", "/api/peers/register",
-                       {"address": "10.0.0.202", "port": 8415})
+                       {"address": "<station-host>", "port": 8415})
         time.sleep(2)
         peers_p = http(PORTABLE_LAN, "GET", "/api/peers")["peers"]
         station_peer = next(
@@ -330,7 +330,7 @@ def main():
     t0 = time.time()
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(src_small),
         "dest_path": dest_path,
         "conflict": "replace",
@@ -358,7 +358,7 @@ def main():
     t0 = time.time()
     job = http(STATION, "POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.45:8415",
+        "src_base": "http://<portable-host>:8415",
         "src_path": p_src,
         "dest_path": str(p_dest),
         "conflict": "replace",
@@ -382,7 +382,7 @@ def main():
     t0 = time.time()
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(big),
         "dest_path": f"{PORTABLE_LAB}/inbox/qualify-25mb.bin",
         "conflict": "replace",
@@ -418,7 +418,7 @@ def main():
     write_file(cancel_src, 40 * 1024 * 1024, b"CANCEL")
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(cancel_src),
         "dest_path": f"{PORTABLE_LAB}/inbox/cancel-me.bin",
         "conflict": "replace",
@@ -436,7 +436,7 @@ def main():
     t0 = time.time()
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(lim_src),
         "dest_path": f"{PORTABLE_LAB}/inbox/bw-limit.bin",
         "conflict": "replace",
@@ -457,7 +457,7 @@ def main():
     write_file(ro_file, 512, b"LOCKED")
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(ro_file),
         "dest_path": f"{PORTABLE_LAB}/inbox/locked-copy.txt",
         "conflict": "replace",
@@ -508,7 +508,7 @@ def main():
     # directory copy
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull_dir",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(STATION_LAB / "outbox" / "nested-dir"),
         "dest_path": f"{PORTABLE_LAB}/inbox/nested-dir",
         "conflict": "replace",
@@ -526,7 +526,7 @@ def main():
     write_file(retry_src, 12 * 1024 * 1024, b"RETRY")
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(retry_src),
         "dest_path": f"{PORTABLE_LAB}/inbox/retry.bin",
         "conflict": "replace",
@@ -548,7 +548,7 @@ def main():
         # cancelling with a still-lower cap.
         job = portable_local("POST", "/api/jobs", {
             "kind": "pull",
-            "src_base": "http://10.0.0.202:8415",
+            "src_base": "http://<station-host>:8415",
             "src_path": str(retry_src),
             "dest_path": f"{PORTABLE_LAB}/inbox/retry2.bin",
             "conflict": "replace",
@@ -608,7 +608,7 @@ def main():
 
     record("architecture", {
         "destination_pull": True,
-        "note": "Portable created pull jobs with src_base=http://10.0.0.202:8415",
+        "note": "Portable created pull jobs with src_base=http://<station-host>:8415",
     })
 
     out = STATION_LAB / "lan-qualify-v121.json"

@@ -17,12 +17,12 @@ import urllib.request
 from pathlib import Path
 
 STATION = "http://127.0.0.1:8415"
-PORTABLE = "http://10.0.0.45:8415"
+PORTABLE = "http://<portable-host>:8415"
 STATION_LAB = Path.home() / "phantom-network-lab" / "large-src"
-PORTABLE_XFER = "/run/media/kayock/KAYOCK-1TB/Phantom-Network-Transfers"
+PORTABLE_XFER = "<external-transfer-share>"
 SSH = [
     "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-    "-o", "ClearAllForwardings=yes", "kayock@10.0.0.45",
+    "-o", "ClearAllForwardings=yes", "<user>@<portable-host>",
 ]
 RESULTS = []
 SUMMARY = {}
@@ -78,10 +78,10 @@ def portable_local(method, path, body=None, timeout=300):
         scp = ["scp", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
                "-o", "ClearAllForwardings=yes"]
         subprocess.check_call(
-            scp + [str(req_path), f"kayock@10.0.0.45:{remote_req}"],
+            scp + [str(req_path), f"<user>@<portable-host>:{remote_req}"],
             stdout=subprocess.DEVNULL)
         subprocess.check_call(
-            scp + [str(run_path), f"kayock@10.0.0.45:{remote_run}"],
+            scp + [str(run_path), f"<user>@<portable-host>:{remote_run}"],
             stdout=subprocess.DEVNULL)
         try:
             proc = subprocess.run(
@@ -181,7 +181,7 @@ def transfer_one(label: str, size: int, resume: bool = False):
     t0 = time.time()
     job = portable_local("POST", "/api/jobs", {
         "kind": "pull",
-        "src_base": "http://10.0.0.202:8415",
+        "src_base": "http://<station-host>:8415",
         "src_path": str(src),
         "dest_path": dest,
         "conflict": "replace",
@@ -251,7 +251,7 @@ def main():
     outside_ok = False
     try:
         http(PORTABLE, "GET",
-             f"/api/fs/list?path={urllib.parse.quote('/run/media/kayock/KAYOCK-1TB', safe='')}")
+             f"/api/fs/list?path={urllib.parse.quote('<external-volume-mount>', safe='')}")
         outside_ok = True
     except Exception as exc:
         SUMMARY["outside_share_blocked"] = str(exc)
@@ -263,7 +263,7 @@ def main():
     tiny.write_text("1tb-share-ok\n", encoding="utf-8")
     dest_tiny = f"{PORTABLE_XFER}/pn-lf-sanity.txt"
     job = portable_local("POST", "/api/jobs", {
-        "kind": "pull", "src_base": "http://10.0.0.202:8415",
+        "kind": "pull", "src_base": "http://<station-host>:8415",
         "src_path": str(tiny), "dest_path": dest_tiny, "conflict": "replace",
     })["job"]
     done, _, _ = wait_job(job["id"], timeout=60, poll_mem=False)

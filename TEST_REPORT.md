@@ -4,8 +4,8 @@
 
 ### Physical LAN qualification (v1.2.1 baseline, preserved)
 
-Station (`10.0.0.202`) → Portable 1 TB share
-`/run/media/kayock/KAYOCK-1TB/Phantom-Network-Transfers` using the Phantom
+Station (`<station-host>`) → Portable 1 TB share
+`<external-transfer-share>` using the Phantom
 Network transfer engine (destination-pull). Evidence file:
 `~/phantom-network-lab/large-file-qualify-v121.json`.
 

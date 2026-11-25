@@ -232,15 +232,15 @@ integration battery, and a written rationale referencing invariants §5/§6.
 
 ## Development source (Station)
 
-- Development tree: `/home/kayock/Projects/Phantom-Network`
-- Installed application (do not edit for LocalForge work): `/home/kayock/.local/opt/phantom-network`
+- Development tree: `<phantom-network-source>`
+- Installed application (do not edit for LocalForge work): `<phantom-network-install>`
 - Runtime config: `~/.config/phantom-network`
 - Runtime logs: `~/.local/state/phantom-network`
 
 ### Test commands
 
 ```bash
-cd /home/kayock/Projects/Phantom-Network
+cd <phantom-network-source>
 python3 -m venv .venv && .venv/bin/pip install -q pytest pytest-timeout
 .venv/bin/python -m pytest tests/unit -q
 node tests/js/test_dsp.mjs

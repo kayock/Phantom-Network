@@ -41,6 +41,20 @@ and no AI model required**.
   transfer directories. v1.2.2 fixes cold source-checksum timeouts so huge
   files no longer need a manual hash-cache warm-up before the first pull.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/command-center.png" alt="Command Center" width="90%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/network-radar.png" alt="Network Radar" width="90%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/transfer-center.png" alt="Transfer Center" width="90%">
+</p>
+
 ## Quick start (three-computer LAN)
 
 1. **Install the companion** on each computer:

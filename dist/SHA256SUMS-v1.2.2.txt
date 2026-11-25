@@ -1,0 +1,2 @@
+26a5a295399004f12346dcf92cc76379c7bb000656a4c1a91bf487c0fbe2ddc5  Phantom-Network-v1.2.2.zip
+60a3320d1f56bf8f9feb652fb068dae54f33fd389d12bae6f4a66a66a76d18c2  phantom-network_1.2.2_all.deb
