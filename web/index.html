@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PHANTOM NETWORK — LAN Command Center</title>
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/theme.css">
+</head>
+<body>
+<div id="boot" class="boot-screen">
+  <div class="boot-inner">
+    <img src="/assets/logo.svg" alt="Phantom Network logo" class="boot-logo">
+    <div class="boot-title">PHANTOM NETWORK</div>
+    <div class="boot-sub">initializing command center…</div>
+    <div class="boot-bar"><div class="boot-bar-fill" id="boot-bar"></div></div>
+    <div class="boot-err" id="boot-err"></div>
+  </div>
+</div>
+
+<div id="app" class="app hidden" aria-label="Phantom Network command center">
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <img src="/assets/logo.svg" alt="" class="brand-logo">
+      <div class="brand-text">
+        <div class="brand-name">PHANTOM</div>
+        <div class="brand-sub">NETWORK v1.2.0</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <a class="nav-item" data-view="dashboard"><span class="nav-ico">◈</span><span class="nav-label">Command Center</span></a>
+      <a class="nav-item" data-view="radar"><span class="nav-ico">◉</span><span class="nav-label">Network Radar</span></a>
+      <a class="nav-item" data-view="commander"><span class="nav-ico">▤</span><span class="nav-label">File Commander</span></a>
+      <a class="nav-item" data-view="transfers"><span class="nav-ico">⇄</span><span class="nav-label">Transfer Center</span></a>
+      <a class="nav-item" data-view="chat"><span class="nav-ico">◌</span><span class="nav-label">GhostChat</span><span class="nav-badge" id="chat-badge" hidden></span></a>
+      <a class="nav-item" data-view="audio"><span class="nav-ico">♪</span><span class="nav-label">Audio Command</span></a>
+      <a class="nav-item" data-view="intercom"><span class="nav-ico">◐</span><span class="nav-label">Intercom</span></a>
+      <a class="nav-item" data-view="signal"><span class="nav-ico">∿</span><span class="nav-label">Signal Lab</span></a>
+      <a class="nav-item" data-view="fleet"><span class="nav-ico">▦</span><span class="nav-label">Fleet Monitor</span></a>
+      <a class="nav-item" data-view="events"><span class="nav-ico">≡</span><span class="nav-label">Events</span></a>
+      <a class="nav-item" data-view="settings"><span class="nav-ico">⚙</span><span class="nav-label">Settings</span></a>
+      <a class="nav-item" data-view="diagnostics"><span class="nav-ico">✚</span><span class="nav-label">Diagnostics</span></a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="self-chip" id="self-chip" title="This device"></div>
+    </div>
+  </aside>
+
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+  <!-- ======================= MAIN ======================= -->
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Toggle menu">☰</button>
+      <div class="topbar-title" id="view-title">Command Center</div>
+      <div class="topbar-status" id="topbar-status">
+        <span class="status-pill" id="status-peers" title="Participating devices online">—</span>
+        <span class="status-pill" id="status-stream" title="Live event stream">●</span>
+        <span class="status-pill" id="status-clock"></span>
+      </div>
+    </header>
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<!-- modal + toast layers -->
+<div class="modal-layer hidden" id="modal-layer"><div class="modal-card" id="modal-card"></div></div>
+<div class="toast-layer" id="toast-layer"></div>
+<div class="ctx-layer hidden" id="ctx-layer"></div>
+
+<script src="/js/app.js" type="module"></script>
+</body>
+</html>

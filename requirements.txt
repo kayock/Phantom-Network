@@ -1,0 +1,7 @@
+# Runtime: none required — the companion is pure Python standard library.
+# Optional runtime aid (better telemetry, small wheel):
+psutil>=5.9 ; python_version >= "3.8"
+
+# Development / test tooling:
+pytest>=7.0
+pytest-timeout>=2.0

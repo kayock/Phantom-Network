@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e9d5ff"/>
+      <stop offset="0.5" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </radialGradient>
+  </defs>
+  <!-- outer hexagon frame -->
+  <polygon points="64,6 114,34 114,94 64,122 14,94 14,34"
+           fill="none" stroke="url(#pg)" stroke-width="4" stroke-linejoin="round" opacity="0.9"/>
+  <polygon points="64,16 105,39 105,89 64,112 23,89 23,39"
+           fill="none" stroke="#22d3ee" stroke-width="1.4" opacity="0.45"/>
+  <!-- orbiting network nodes -->
+  <g stroke="url(#pg)" stroke-width="2" opacity="0.85">
+    <line x1="64" y1="64" x2="30" y2="44"/>
+    <line x1="64" y1="64" x2="98" y2="44"/>
+    <line x1="64" y1="64" x2="28" y2="84"/>
+    <line x1="64" y1="64" x2="100" y2="84"/>
+    <line x1="30" y1="44" x2="28" y2="84"/>
+    <line x1="98" y1="44" x2="100" y2="84"/>
+    <line x1="30" y1="44" x2="98" y2="44"/>
+    <line x1="28" y1="84" x2="100" y2="84"/>
+  </g>
+  <g fill="#22d3ee">
+    <circle cx="30" cy="44" r="5"/>
+    <circle cx="98" cy="44" r="5"/>
+    <circle cx="28" cy="84" r="5"/>
+    <circle cx="100" cy="84" r="5"/>
+  </g>
+  <!-- phantom core -->
+  <circle cx="64" cy="64" r="17" fill="url(#core)"/>
+  <path d="M56 68 q8 -12 16 0 q-8 8 -16 0 Z" fill="#0a0c14" opacity="0.85"/>
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#22d3ee" stroke-width="1.2" opacity="0.6" stroke-dasharray="6 4"/>
+</svg>

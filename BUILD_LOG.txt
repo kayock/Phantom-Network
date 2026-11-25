@@ -1,0 +1,134 @@
+PHANTOM NETWORK v1.2.0 — BUILD LOG
+===================================
+Date: 2026-11-25
+Environment: Linux 5.10.134 (container), Python 3.12.16, node v22.x
+Host resources: 2 vCPU / 4 GB RAM / ~7.2 GB free working disk
+
+BUILD / RELEASE STEPS
+---------------------
+[1] Baseline preserved: git tags v1.0.0-baseline (e36f07f) and v1.1.0
+    (28cc67e); archives kept: dist/Phantom-Network-v1.0.0.zip,
+    dist/Phantom-Network-v1.0.0-original.zip, dist/Phantom-Network-v1.1.0.zip.
+[2] Version bump: companion 1.2.0, index.html "NETWORK v1.2.0",
+    server_version PhantomCompanion/1.2, make-deb 1.2.0, README/DEPLOYMENT/
+    BUILD/DEVELOPER_GUIDE version strings swept (grep-clean).
+[3] Windows scripts rewritten (Join-Path, no control bytes) — verified by
+    packaging/validate_release.py (byte-level scan; the v1.1.0 installer
+    contained VT/CR control bytes — see REFINEMENT_REPORT.md).
+[4] Full automated battery (final run):
+
+    Command: python -m pytest tests/unit tests/integration -q
+    Result:  105 passed, 0 failed, exit 0  (~17 min)
+
+      tests/unit        55  (incl. 23 new v1.2.0 regressions; the JS DSP
+                            node suite runs as part of tests/unit)
+      tests/integration 50  (24 v1.0.0 set + 10 v1.1.0 set + 11 v1.2.0 set
+                             + 5 lifecycle/transfer extras — real companion
+                             subprocesses over HTTP)
+
+    Includes: concurrent 2x1.2 GiB transfers, 768 MB cancel with .part
+    retention, restart-then-resume source-change refusal, 233-byte UTF-8
+    filename transfer (found+fixed the Content-Disposition latin-1 crash),
+    real-data window beyond 2^32, remote-admin 403 checks, port-conflict
+    behaviour, 5x start/stop thread/RSS stability.
+
+[5] Debian package: bash packaging/make-deb.sh
+    → dist/phantom-network_1.2.0_all.deb (358,948 bytes; dpkg-deb -I/-c
+      inspected: correct metadata, /opt/phantom-network layout).
+[6] Release archive: bash packaging/make-dist.sh
+    - validates the staged TREE (required files, forbidden artifacts,
+      version consistency, control bytes, UTF-8, PowerShell statics)
+    - validates the ARCHIVE (entry scan + integrity + SHA-256)
+    - ships the .deb under dist/ inside the archive
+[7] Clean-extract verification: unit suite + integration smoke executed
+    against the extracted tree (results below in the release summary).
+
+HONEST LIMITATIONS (v1.2.0)
+---------------------------
+* Largest real transfers: 2.6 GiB single (v1.1.0) and 2x1.2 GiB concurrent
+  (v1.2.0); a genuine >4 GiB copy needs ~9 GB free — not available here;
+  >2^32 offsets additionally proven against real data via the sparse-file
+  window test. Never claimed as a 4 GiB+ full transfer.
+* PowerShell validated statically (byte scan + quote/brace sanity) — no
+  pwsh in this environment; real Windows execution = Stage C of
+  CURSOR_DEPLOYMENT_HANDOFF.md (requires the owner's authorization).
+* ENOSPC mid-write tested via mocked OSError(28) — no tmpfs here.
+* Physical speakers / mobile microphone / >2.6 GiB GGUF-scale runs remain
+  physical-machine items (Stage D/E).
+
+================================================================================
+Date: 2026-11-25
+Environment: Linux 5.10.134 (container), Python 3.12.16, node v22.x
+Host resources: 2 vCPU / 4 GB RAM / ~7.3 GB free working disk
+
+BUILD / RELEASE STEPS
+---------------------
+[1] Git baseline preserved: tag v1.0.0-baseline (commit e36f07f),
+    original archive kept at dist/Phantom-Network-v1.0.0-original.zip.
+[2] Companion version bumped: __init__ 1.1.0, index.html "NETWORK v1.1.0",
+    server_version PhantomCompanion/1.1, make-dist.sh VERSION=1.1.0.
+[3] Deterministic sound presets unchanged from v1.0.0
+    (scripts/gen_sounds.py → sounds/*.wav, 8 originals preserved).
+[4] Full automated battery (final run):
+
+    Command: python -m pytest tests/unit tests/integration -q
+    Result:  71 passed, 0 failed, 0 errors  (71 dots, exit 0)
+
+      tests/unit                     32 passed   (incl. new v1.1.0
+                                                  regression tests)
+      tests/unit/test_js_dsp.py      (node tests against shipped dsp.js)
+                                     11 passed
+      tests/integration/test_network_e2e.py
+                                     24 passed   (v1.0.0 set — all five
+                                                  v1.0.0 failures resolved)
+      tests/integration/test_v11_integration.py
+                                     10 passed   (safe defaults, identity
+                                                  capabilities, 21k-file dir
+                                                  transfer, tree-cap refusal,
+                                                  sync size/hash modes,
+                                                  resume-identity guard,
+                                                  partial-completion move,
+                                                  2.6 GiB transfer with
+                                                  resume past 2^31, >4 GiB
+                                                  Range boundary probe)
+
+    Battery wall time: ~13 minutes (dominated by the real 2.6 GiB transfer
+    at a deliberate 20 MB/s limiter).
+
+[5] Release archive: bash packaging/make-dist.sh
+    → dist/Phantom-Network-v1.1.0.zip (zip integrity verified by the
+    script; shipped source re-compiled from a clean extraction; shipped
+    DSP suite re-run from the extraction).
+[6] Clean-extract verification: pytest run against the extracted tree
+    (results in TEST_REPORT.md §"v1.1.0 clean-extract verification").
+
+NOTES / HONEST LIMITATIONS
+--------------------------
+* The 2.6 GiB transfer is the largest fully-executed real transfer in this
+  environment; a 50 GB GGUF-scale run needs ~110 GB free and was NOT
+  executed (offset machinery additionally covered by the sparse 4.5 GB
+  >4 GiB Range probe). Not claimed otherwise anywhere in the docs.
+* Windows installers/spec are source-audited only (no Windows host in this
+  environment). Physical audio audibility and mobile-browser microphone
+  behavior were not verifiable here (see TEST_REPORT.md verification
+  matrix).
+* The large-file integration test sizes itself to the available disk
+  (2.2 GiB floor, else honest skip) so it never fabricates a pass.
+
+================================================================================
+PHANTOM NETWORK v1.0.0 — BUILD LOG (2026-11-25, Linux 5.10 x86_64, Python 3.12.16)
+================================================================================
+
+[01] Source audit
+     $ python3 -m py_compile companion/*.py        → OK (15 modules)
+     $ node --experimental-vm-modules …            → all 18 web JS modules parse OK
+     $ grep '__version__ = "1.0.0"' companion/__init__.py → OK
+     $ grep 'NETWORK v1.0.0' web/index.html        → OK
+
+[02] Derived assets
+     $ python3 scripts/gen_sounds.py
+       → 8 original WAV presets written to sounds/ (44.1 kHz 16-bit mono,
+         byte-identical to companion synthesis; verified with wave module)
+
+[03] Test suite (final pre-release run)
+     $ python3 -m pytest tests/unit -q             → 27 passed
