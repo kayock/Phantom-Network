@@ -1,3 +1,29 @@
+# CHANGELOG.md
+
+All notable changes to PHANTOM NETWORK.
+
+## [1.3.2] — 2026-11-25
+
+### Fixed
+- **UDP discovery ignored every v1.3.1 beacon** because companions advertised
+  `pn: 2` while receivers required `pn == 1`. Peers flapped offline after the
+  12s TTL; GhostChat then failed with a red X ("No recipients online") even
+  when the destination was reachable. Receivers now accept `pn >= 1`.
+- **GhostChat delivery no longer requires a live "online" flag** when a peer
+  has a known address — attempt delivery, then mark success/failure honestly.
+- **GhostChat conversation sidebar 500** when history contained `mobile:…`
+  keys for phones hosted on another companion (`client.name` on `None`).
+- **Mobile chat attachments to a computer** now upload into that computer's
+  authorized share instead of always landing on the phone's host.
+- Prefer RFC1918 LAN addresses over CGNAT/Tailscale (`100.x`) when contacting
+  multi-homed peers.
+- Same-host mobile → host computer messages resolve locally (no peer hop).
+
+### HTTPS
+- Documented / prepared optional LAN HTTPS for iPhone microphone access.
+  Certificates are generated on request; trust-store changes remain manual.
+  HTTP on port 8415 stays the default until `tls_enabled` is set.
+
 # Changelog
 
 ## [1.3.1] — Mobile Stabilization

@@ -449,7 +449,7 @@ function renderHome(view) {
       el('button', { class: 'btn', style: { flex: '1 1 45%' }, onclick: () => goTab('more') }, '⋯  More'))));
 
   view.appendChild(el('div', { class: 'faint small', style: { textAlign: 'center' } },
-    `Phantom Network v1.3.1 · hosted by ${M.ident.host_name} · no cloud involved`));
+    `Phantom Network v1.3.2 · hosted by ${M.ident.host_name} · no cloud involved`));
 }
 function goTab(name) {
   document.querySelector(`.mtab[data-tab="${name}"]`).click();
@@ -689,16 +689,52 @@ async function attachFile(conv, meta) {
     input.remove();
     for (const file of input.files || []) {
       try {
+        const toKind = meta.kind === 'direct' ? (meta.peer.startsWith('mob_') ? 'mobile' : 'direct') : meta.kind;
         toast(`Uploading ${file.name}…`, 'info');
-        const fid = await uploadChatFile(file, (p) => {});
-        await sendMsg(meta.kind === 'direct' ? (meta.peer.startsWith('mob_') ? 'mobile' : 'direct') : meta.kind,
-          meta.peer, '', {
-          attachment: {
-            kind: (file.type || '').startsWith('image/') ? 'image' : 'file',
-            file_id: fid.id, name: file.name, size: file.size, mime: file.type || 'application/octet-stream',
-            host_device_id: M.ident.host_device_id,
-          },
-        });
+        if (toKind === 'direct' && !meta.peer.startsWith('mob_')) {
+          // Computer destination: put bytes on THAT machine (not the phone's host).
+          const targetDev = devices().find(d => d.device_id === meta.peer);
+          if (!targetDev) throw new Error('destination computer not found');
+          const base = devAddress(targetDev);
+          const roots = await fetch(`http://${base}/api/fs/roots`).then(r => r.json());
+          const rwShare = (roots.shares || []).find(s => s.mode === 'rw');
+          if (!rwShare) throw new Error(`${targetDev.name} has no read-write share`);
+          const session = await fetch(`http://${base}/api/fs/upload/session`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: rwShare.path, name: file.name, size: file.size, conflict: 'rename' }),
+          }).then(r => r.json());
+          if (!session.sid) throw new Error(session.message || 'upload session failed');
+          const CHUNK = 512 * 1024;
+          let offset = 0;
+          while (offset < file.size) {
+            const buf = await file.slice(offset, offset + CHUNK).arrayBuffer();
+            const resp = await fetch(`http://${base}/api/fs/upload/${session.sid}`, { method: 'PUT', body: buf });
+            if (!resp.ok) throw new Error(`upload failed at ${offset}`);
+            offset += buf.byteLength;
+          }
+          const fin = await fetch(`http://${base}/api/fs/upload/${session.sid}/finish`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+          }).then(r => r.json());
+          if (!fin.ok) throw new Error(fin.message || 'finalize failed');
+          await sendMsg('direct', meta.peer, `[file shared] ${file.name}`, {
+            attachment: {
+              kind: (file.type || '').startsWith('image/') ? 'image' : 'file',
+              name: file.name, size: file.size, path: fin.target || fin.path,
+              src_base: `http://${base}`,
+              mime: file.type || 'application/octet-stream',
+            },
+          });
+        } else {
+          // Phone-to-phone / host chat-file store (recipient pulls from host)
+          const fid = await uploadChatFile(file, (p) => {});
+          await sendMsg(toKind, meta.peer, '', {
+            attachment: {
+              kind: (file.type || '').startsWith('image/') ? 'image' : 'file',
+              file_id: fid.id, name: file.name, size: file.size, mime: file.type || 'application/octet-stream',
+              host_device_id: M.ident.host_device_id,
+            },
+          });
+        }
         toast(`Sent ${file.name}`, 'ok');
         renderTab();
       } catch (e) { toast(errText(e), 'err'); }
@@ -974,11 +1010,24 @@ async function loadDir(container, dev, pathState) {
     container.appendChild(el('div', { class: 'empty-note' }, `Cannot browse: ${errText(e)}`));
   }
 }
+function preferLan(addrs) {
+  const list = (addrs || []).filter(Boolean);
+  if (!list.length) return '';
+  const rank = (a) => {
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(a)) return 0;
+    if (a.startsWith('100.')) return 2;
+    return 1;
+  };
+  return [...list].sort((a, b) => rank(a) - rank(b))[0];
+}
 function devAddress(dev) {
-  // same-origin when the target IS the host; otherwise LAN address
+  // same-origin when the target IS the host; otherwise preferred LAN address
   if (dev.device_id === M.ident.host_device_id) return location.host;
   const peer = M.peers.find(p => p.device_id === dev.device_id);
-  if (peer && peer.addresses && peer.addresses.length) return `${peer.addresses[0]}:${peer.api_port}`;
+  if (peer && peer.addresses && peer.addresses.length) {
+    const a = preferLan(peer.addresses) || peer.addresses[0];
+    return `${a}:${peer.api_port || 8415}`;
+  }
   throw new Error('no reachable address');
 }
 function parentOf(p) {

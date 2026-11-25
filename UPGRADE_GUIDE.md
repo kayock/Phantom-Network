@@ -1,4 +1,12 @@
-# Upgrade Guide — to v1.3.1
+# Upgrade Guide — to v1.3.2
+
+## From v1.3.1 → v1.3.2
+
+Same procedure as below (replace the application tree, keep the data
+directory). v1.3.2 is a targeted routing/discovery repair — no schema
+migration beyond what v1.3.1 already applied.
+
+# Upgrade Guide — to v1.3.1 (baseline)
 
 One procedure per machine, about five minutes. Nothing is reinstalled,
 re-qualified or re-configured beyond the steps below.

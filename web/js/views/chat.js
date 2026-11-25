@@ -423,14 +423,20 @@ export async function render(container) {
           } else if (current.startsWith('direct:')) {
             const targetDev = current.split(':')[1];
             const peer = state.peerById(targetDev);
-            if (!peer || peer.status !== 'online') { toast('Peer offline', 'err'); return; }
+            if (!peer || !(peer.addresses || []).length) { toast('Peer has no reachable address', 'err'); return; }
+            const preferLan = (addrs) => {
+              const list = (addrs || []).filter(Boolean);
+              const rank = (a) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(a) ? 0 : (a.startsWith('100.') ? 2 : 1);
+              return [...list].sort((a,b)=>rank(a)-rank(b))[0] || list[0];
+            };
+            const addr = preferLan(peer.addresses);
             toast(`Uploading ${file.name} to ${peer.display_name}…`);
             const fin = await api.uploadFile(targetDev, '~', file, () => {});
             await api.chatSend({
               to_kind: 'direct', to_id: targetDev, body: `[file shared] ${file.name}`,
               reply_to: replyTo || '',
               attachment: { name: file.name, size: file.size, path: fin.target,
-                            src_base: `http://${peer.addresses[0]}:${peer.api_port}`,
+                            src_base: `http://${addr}:${peer.api_port}`,
                             from_name: state.self?.name },
             });
           } else {

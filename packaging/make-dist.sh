@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Build + verify the release ZIP: Phantom-Network-v1.3.1.zip
+# Build + verify the release ZIP: Phantom-Network-v1.3.2.zip
 set -e
 cd "$(dirname "$0")/.."
-VERSION=1.3.1
+VERSION=1.3.2
 OUT=dist; NAME="Phantom-Network-v$VERSION"
 mkdir -p "$OUT"
 
 # 1. source audit: every version indicator must report the release version
-grep -q '__version__ = "1.3.1"' companion/__init__.py
-grep -q "NETWORK v1.3.1" web/index.html
+grep -q '__version__ = "1.3.2"' companion/__init__.py
+grep -q "NETWORK v1.3.2" web/index.html
 echo "[audit] version strings OK"
 
 # 2. stage the release tree (no git internals, no dev logs, no archives)
@@ -51,7 +51,7 @@ rm -rf /tmp/pn-verify && mkdir -p /tmp/pn-verify
 unzip -q "$OUT/$NAME.zip" -d /tmp/pn-verify
 python3 -m py_compile /tmp/pn-verify/$NAME/companion/*.py && echo "[verify] shipped source compiles"
 node /tmp/pn-verify/$NAME/tests/js/test_dsp.mjs >/dev/null 2>&1 && echo "[verify] shipped DSP suite passes"
-node /tmp/pn-verify/$NAME/tests/js/test_v131.mjs >/dev/null 2>&1 && echo "[verify] shipped v1.3.1 JS suite passes"
+node /tmp/pn-verify/$NAME/tests/js/test_v131.mjs >/dev/null 2>&1 && echo "[verify] shipped v1.3.2 JS suite passes"
 
 # 7. validate the ARCHIVE itself (entry scan + SHA-256)
 python3 packaging/validate_release.py "$OUT/$NAME.zip"

@@ -191,3 +191,14 @@ integration tests (async "hashing"-phase polls); an A/B against a pristine
 v1.2.2 worktree shows the identical behavior. Real deployments are
 unaffected; the transfer engine is byte-identical to the physically
 verified v1.2.2.
+
+## v1.3.2 notes
+
+* iPhone microphone / voice messages still require optional HTTPS + manual
+  certificate trust on the phone (see HTTPS_SETUP.md). Plain HTTP LAN URLs
+  cannot grant `getUserMedia` in Safari — that is a browser platform rule,
+  not a Phantom Network authentication gate.
+* Hosted-phone chat still stores a host-side outgoing copy on the companion
+  that registered the phone; that is expected. Destination computers receive
+  their own copy when delivery succeeds.
+

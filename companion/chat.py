@@ -45,7 +45,7 @@ from typing import Dict, List, Optional
 
 from .errors import FsError
 from .peers import PeerClient, PeerUnreachable
-from .util import atomic_write_json, new_id, now_ms, read_json
+from .util import atomic_write_json, new_id, now_ms, read_json, prefer_lan_address
 
 STORE_CAP = 20000
 OUTBOX_RETRY_S = 20
@@ -442,7 +442,7 @@ class ChatEngine:
                 if mc.get("client_id") == client_id:
                     return {"id": client_id, "local": False,
                             "host_device_id": peer.device_id,
-                            "address": peer.addresses[0],
+                            "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
                             "port": peer.api_port}
         return None
 
@@ -451,11 +451,22 @@ class ChatEngine:
         targets: List[dict] = []
         me = self.identity()["device_id"]
         if to_kind == "direct":
-            peer = self.registry.get(to_id)
-            if peer and peer.status == "online" and peer.addresses:
-                targets.append({"id": peer.device_id, "kind": "computer",
-                                "address": peer.addresses[0],
-                                "port": peer.api_port})
+            me_id = me
+            # Same-host mobile → this companion: deliver locally (no peer hop).
+            if to_id == me_id:
+                targets.append({"id": me_id, "kind": "computer", "local": True,
+                                "address": "127.0.0.1", "port": 0})
+            else:
+                peer = self.registry.get(to_id)
+                # Attempt delivery whenever we have an address. Requiring
+                # status=="online" made GhostChat fail with a red X whenever
+                # UDP beacons briefly missed the 12s TTL — even for reachable
+                # manual peers. _deliver updates success/failure honestly.
+                if peer and peer.addresses:
+                    addr = prefer_lan_address(peer.addresses) or peer.addresses[0]
+                    targets.append({"id": peer.device_id, "kind": "computer",
+                                    "address": addr,
+                                    "port": peer.api_port})
         elif to_kind == "mobile":
             host = self._mobile_host_for(to_id)
             if host:
@@ -475,14 +486,14 @@ class ChatEngine:
                     peer = self.registry.get(member)
                     if peer and peer.status == "online" and peer.addresses:
                         targets.append({"id": member, "kind": "computer",
-                                        "address": peer.addresses[0],
+                                        "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
                                         "port": peer.api_port})
         else:  # broadcast → every participating computer + every mobile client
             for peer in self.registry.all():
                 if peer.device_id != me and peer.status == "online" \
                         and peer.addresses and peer.participating:
                     targets.append({"id": peer.device_id, "kind": "computer",
-                                    "address": peer.addresses[0],
+                                    "address": prefer_lan_address(peer.addresses) or peer.addresses[0],
                                     "port": peer.api_port})
             if self.mobile:
                 for c in self.mobile.all():
@@ -522,6 +533,21 @@ class ChatEngine:
                 return True
             except (PeerUnreachable, Exception):
                 return False
+        # Local delivery to THIS companion (mobile client → its host).
+        if target.get("local") and target.get("kind") == "computer":
+            # Message already stored by send(); re-key for the host view so
+            # GhostChat shows it under the phone conversation.
+            host_view = dict(msg)
+            host_view["outgoing"] = False
+            frm = (msg.get("from") or {}).get("device_id") or ""
+            host_view["conv"] = conversation_key("direct", frm or "unknown")
+            host_view["status"] = "delivered"
+            # Avoid double-inserting the sender copy; publish host-side view.
+            if host_view["conv"] != msg.get("conv"):
+                self._store_and_publish(host_view)
+            msg["status"] = "delivered"
+            self._publish_update(msg)
+            return True
         try:
             self._client.request(
                 "POST", f"http://{target['address']}:{target['port']}"
@@ -532,6 +558,17 @@ class ChatEngine:
             else:
                 msg.setdefault("delivered_to", []).append(target["id"])
                 msg["status"] = "delivered"
+            # Successful HTTP delivery proves the peer is reachable — refresh
+            # presence so the UI stops showing a false offline flag.
+            try:
+                peer = self.registry.get(target["id"])
+                if peer:
+                    self.registry.observe_beacon(
+                        {"device_id": peer.device_id, "name": peer.name,
+                         "api_port": peer.api_port, "version": peer.version},
+                        target["address"])
+            except Exception:
+                pass
             self._publish_update(msg)
             return True
         except (PeerUnreachable, Exception):
@@ -986,6 +1023,23 @@ class ChatEngine:
     # ------------------------------------------------------------------
     # queries
     # ------------------------------------------------------------------
+
+    def _remote_mobile_title(self, client_id: str) -> str:
+        for peer in self.registry.all():
+            for mc in (getattr(peer, "mobile_clients", None) or []):
+                if mc.get("client_id") == client_id:
+                    return mc.get("name") or mc.get("display_name") or client_id
+        return ""
+
+    def _remote_mobile_online(self, client_id: str) -> bool:
+        for peer in self.registry.all():
+            if peer.status != "online":
+                continue
+            for mc in (getattr(peer, "mobile_clients", None) or []):
+                if mc.get("client_id") == client_id:
+                    return bool(mc.get("online") or mc.get("status") == "online")
+        return False
+
     def conversations(self) -> List[dict]:
         """Conversation list with last message + unread counts."""
         by_conv: Dict[str, dict] = {}
@@ -1032,8 +1086,14 @@ class ChatEngine:
                 entry["online"] = peer_online
             elif kind == "mobile":
                 client = self.mobile.get(key) if self.mobile else None
-                entry["title"] = client.name or key
-                entry["online"] = bool(client.online) if client else False
+                if client is not None:
+                    entry["title"] = client.name or key
+                    entry["online"] = bool(client.online)
+                else:
+                    # Phone may be hosted by another companion — look up the
+                    # name from peer identity payloads; never crash the sidebar.
+                    entry["title"] = self._remote_mobile_title(key) or key
+                    entry["online"] = self._remote_mobile_online(key)
                 entry["kind_of_peer"] = "mobile"
             elif kind == "group":
                 group = self._find_group(key)
@@ -1058,7 +1118,7 @@ class ChatEngine:
             if needle:
                 hay = (msg.get("body", "") + " " +
                        (msg.get("attachment") or {}).get("name", "")).lower()
-                if needle not in hay and needle not in msg["from"]["name"].lower():
+                if needle not in hay and needle not in str((msg.get("from") or {}).get("name") or "").lower():
                     continue
             out.append(msg)
             if len(out) >= limit:

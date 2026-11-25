@@ -7,12 +7,12 @@ intercom relay and telemetry to the Phantom Network browser command center.
 Pure Python 3.9+ standard library is required; ``psutil`` is an optional
 dependency that improves telemetry fidelity when installed.
 
-v1.3.1 (PHANTOM MOBILE — stabilization) adds independent mobile browser clients: phones and
+v1.3.2 (PHANTOM MOBILE — routing repair) adds independent mobile browser clients: phones and
 tablets register with their host companion as first-class logical
 participants with their own identity, inbox and presence.
 """
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 __product__ = "Phantom Network"
 
 # Protocol 2 introduces the mobile-client identity fields (``kind``,

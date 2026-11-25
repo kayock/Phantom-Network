@@ -157,6 +157,32 @@ def local_ipv4s() -> list:
     return sorted(set(addrs))
 
 
+def prefer_lan_address(addresses) -> str:
+    """Pick the best peer address for LAN companion-to-companion calls.
+
+    Prefers RFC1918 private addresses over CGNAT/Tailscale (100.64/10) and
+    other public IPs so multi-homed Windows boxes do not route chat/files
+    through the wrong interface.
+    """
+    addrs = [a for a in (addresses or []) if a]
+    if not addrs:
+        return ""
+    def rank(a: str) -> tuple:
+        try:
+            import ipaddress
+            ip = ipaddress.ip_address(a.split('%')[0])
+        except Exception:
+            return (3, a)
+        if ip.is_private and not str(ip).startswith('100.'):
+            return (0, a)
+        if str(ip).startswith('100.'):
+            return (2, a)
+        if ip.is_loopback:
+            return (3, a)
+        return (1, a)
+    return sorted(addrs, key=rank)[0]
+
+
 def os_family() -> str:
     """'windows' | 'linux' | 'macos' | 'other' — used by discovery payloads."""
     s = platform.system().lower()

@@ -204,7 +204,11 @@ class DiscoveryService:
                 self._note("rx", f"unparseable packet from {addr[0]}",
                            ok=False, address=addr[0])
                 continue
-            if packet.get("pn") != 1 or packet.get("kind") != "beacon":
+            # Accept protocol 1 (pre-mobile) and 2+ (mobile) beacons.  v1.3.1
+            # mistakenly required pn==1 while advertising PROTOCOL_VERSION=2,
+            # so every modern beacon was dropped and peers flapped offline.
+            pn = packet.get("pn")
+            if packet.get("kind") != "beacon" or not isinstance(pn, int) or pn < 1:
                 self._unknown_senders[addr[0]] = time.monotonic()
                 self._note("rx", f"non-beacon payload from {addr[0]}",
                            ok=False, address=addr[0])
@@ -304,14 +308,24 @@ class DiscoveryService:
         return ""
 
     def _probe_latencies(self, client) -> None:
+        from .util import prefer_lan_address
         for peer in self.registry.all():
-            if peer.status != "online" or not peer.addresses:
+            # Probe online peers for latency AND offline manual peers so a
+            # missed UDP beacon window cannot strand them until the 30s
+            # manual loop (chat delivery also retries, but Radar should
+            # reflect reachability promptly).
+            if not peer.addresses:
                 continue
-            url = f"http://{peer.addresses[0]}:{peer.api_port}"
+            if peer.status != "online" and not peer.manual:
+                continue
+            addr = prefer_lan_address(peer.addresses) or peer.addresses[0]
+            url = f"http://{addr}:{peer.api_port}"
             start = time.monotonic()
             try:
                 ident = client.identity(url, timeout=2.5)
                 latency = (time.monotonic() - start) * 1000.0
+                if peer.status != "online":
+                    self.registry.observe_beacon(ident, addr)
                 self.registry.set_latency(peer.device_id, round(latency, 1),
                                           ident.get("uptime_s"))
             except Exception:
